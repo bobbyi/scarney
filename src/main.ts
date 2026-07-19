@@ -1,34 +1,33 @@
 import "./style.css";
-import {
-  createDeck,
-  shuffleDeck,
-  dealScarney,
-  type Card,
-  type ScarneyDeal,
-  type Suit,
-} from "./game/deck";
+import { createDeck, shuffleDeck, dealScarney, type Card, type ScarneyDeal, type Rank } from "./game/deck";
 
-const SUIT_SYMBOLS: Record<Suit, string> = {
-  spades: "♠",
-  hearts: "♥",
-  diamonds: "♦",
-  clubs: "♣",
+const RANK_FILE_NAMES: Record<Rank, string> = {
+  "2": "2",
+  "3": "3",
+  "4": "4",
+  "5": "5",
+  "6": "6",
+  "7": "7",
+  "8": "8",
+  "9": "9",
+  "10": "10",
+  J: "jack",
+  Q: "queen",
+  K: "king",
+  A: "ace",
 };
 
-const RED_SUITS: Suit[] = ["hearts", "diamonds"];
 const BOARD_SIZE = 5;
 
 let deal: ScarneyDeal = dealScarney(shuffleDeck(createDeck()));
 let revealedCount = 0;
 
+function cardImageSrc(card: Card): string {
+  return `/cards/${RANK_FILE_NAMES[card.rank]}_of_${card.suit}.svg`;
+}
+
 function renderCard(card: Card): string {
-  const colorClass = RED_SUITS.includes(card.suit) ? "red" : "black";
-  return `
-    <div class="card ${colorClass}">
-      <span class="rank">${card.rank}</span>
-      <span class="suit">${SUIT_SYMBOLS[card.suit]}</span>
-    </div>
-  `;
+  return `<img class="card" src="${cardImageSrc(card)}" alt="${card.rank} of ${card.suit}">`;
 }
 
 function renderPlaceholder(): string {
