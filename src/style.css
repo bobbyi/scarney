@@ -66,6 +66,22 @@ body {
   box-shadow: none;
 }
 
+.card.back {
+  opacity: 0.85;
+}
+
+.results {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.25rem;
+  min-height: 1.5em;
+  color: white;
+  font-size: 1.1rem;
+  font-weight: 600;
+  text-align: center;
+}
+
 .boards {
   display: flex;
   flex-direction: column;

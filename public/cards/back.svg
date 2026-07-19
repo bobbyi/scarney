@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 167.0869141 242.6669922">
+  <rect x="1" y="1" width="165.0869141" height="240.6669922" rx="10" fill="#ffffff" stroke="#1a1a1a" stroke-width="2"/>
+  <rect x="12" y="12" width="143.0869141" height="218.6669922" rx="6" fill="#14356b"/>
+  <defs>
+    <pattern id="diamondLattice" x="0" y="0" width="18" height="18" patternUnits="userSpaceOnUse">
+      <path d="M9,0 L18,9 L9,18 L0,9 Z" fill="none" stroke="#2f57a0" stroke-width="1.5"/>
+    </pattern>
+  </defs>
+  <rect x="12" y="12" width="143.0869141" height="218.6669922" rx="6" fill="url(#diamondLattice)"/>
+  <g transform="translate(83.5,121.3) scale(2.6) translate(-12,-13)">
+    <g transform="translate(0,24) scale(1,-1)">
+      <path fill="#ffffff" d="M12,21.35l-1.45-1.32C5.4,15.36,2,12.28,2,8.5 2,5.42,4.42,3,7.5,3c1.74,0,3.41,0.81,4.5,2.09C13.09,3.81,14.76,3,16.5,3 19.58,3,22,5.42,22,8.5c0,3.78-3.4,6.86-8.55,11.54L12,21.35z"/>
+    </g>
+    <path fill="#ffffff" d="M10,17.5 C10,17.5 9,21 6.5,22.5 L17.5,22.5 C15,21 14,17.5 14,17.5 Z"/>
+  </g>
+</svg>

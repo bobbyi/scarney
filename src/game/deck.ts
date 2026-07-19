@@ -64,6 +64,7 @@ export interface ScarneyDeal {
   hand: Card[];
   boardA: Card[];
   boardB: Card[];
+  opponentHand: Card[];
 }
 
 export function dealScarney(deck: Card[]): ScarneyDeal {
@@ -71,6 +72,7 @@ export function dealScarney(deck: Card[]): ScarneyDeal {
     hand: deck.slice(0, 5),
     boardA: deck.slice(5, 10),
     boardB: deck.slice(10, 15),
+    opponentHand: deck.slice(15, 20),
   };
 }
 
