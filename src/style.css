@@ -31,6 +31,7 @@ h1 {
 }
 
 .card {
+  box-sizing: border-box;
   width: 4.5rem;
   height: 6.5rem;
   background: white;
