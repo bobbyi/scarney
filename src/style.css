@@ -88,10 +88,16 @@ button {
   border-radius: 0.4rem;
   border: none;
   background: white;
+  color: #1a1a1a;
   cursor: pointer;
   font-weight: 600;
 }
 
 button:hover {
   background: #eee;
+}
+
+button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
 }
