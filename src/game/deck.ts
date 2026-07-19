@@ -59,3 +59,17 @@ export function shuffleDeck(deck: Card[]): Card[] {
 export function dealHand(deck: Card[], count: number): Card[] {
   return deck.slice(0, count);
 }
+
+export interface ScarneyDeal {
+  hand: Card[];
+  boardA: Card[];
+  boardB: Card[];
+}
+
+export function dealScarney(deck: Card[]): ScarneyDeal {
+  return {
+    hand: deck.slice(0, 5),
+    boardA: deck.slice(5, 10),
+    boardB: deck.slice(10, 15),
+  };
+}

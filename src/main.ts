@@ -1,5 +1,12 @@
 import "./style.css";
-import { createDeck, shuffleDeck, dealHand, type Card, type Suit } from "./game/deck";
+import {
+  createDeck,
+  shuffleDeck,
+  dealScarney,
+  type Card,
+  type ScarneyDeal,
+  type Suit,
+} from "./game/deck";
 
 const SUIT_SYMBOLS: Record<Suit, string> = {
   spades: "♠",
@@ -9,6 +16,10 @@ const SUIT_SYMBOLS: Record<Suit, string> = {
 };
 
 const RED_SUITS: Suit[] = ["hearts", "diamonds"];
+const BOARD_SIZE = 5;
+
+let deal: ScarneyDeal = dealScarney(shuffleDeck(createDeck()));
+let revealedCount = 0;
 
 function renderCard(card: Card): string {
   const colorClass = RED_SUITS.includes(card.suit) ? "red" : "black";
@@ -20,23 +31,58 @@ function renderCard(card: Card): string {
   `;
 }
 
-function dealNewHand(handEl: HTMLElement) {
-  const deck = shuffleDeck(createDeck());
-  const hand = dealHand(deck, 5);
-  handEl.innerHTML = hand.map(renderCard).join("");
+function renderPlaceholder(): string {
+  return `<div class="card placeholder"></div>`;
+}
+
+function renderBoardRow(board: Card[]): string {
+  return board
+    .map((card, i) => (i < revealedCount ? renderCard(card) : renderPlaceholder()))
+    .join("");
+}
+
+function render() {
+  const handEl = document.querySelector<HTMLDivElement>("#hand")!;
+  const boardAEl = document.querySelector<HTMLDivElement>("#board-a")!;
+  const boardBEl = document.querySelector<HTMLDivElement>("#board-b")!;
+  const nextButton = document.querySelector<HTMLButtonElement>("#next-button")!;
+
+  handEl.innerHTML = deal.hand.map(renderCard).join("");
+  boardAEl.innerHTML = renderBoardRow(deal.boardA);
+  boardBEl.innerHTML = renderBoardRow(deal.boardB);
+  nextButton.disabled = revealedCount >= BOARD_SIZE;
+}
+
+function dealNewHand() {
+  deal = dealScarney(shuffleDeck(createDeck()));
+  revealedCount = 0;
+  render();
+}
+
+function revealNextRound() {
+  if (revealedCount < BOARD_SIZE) {
+    revealedCount++;
+    render();
+  }
 }
 
 const app = document.querySelector<HTMLDivElement>("#app")!;
 app.innerHTML = `
   <div class="table">
-    <h1>Poker</h1>
+    <h1>Scarney</h1>
     <div id="hand" class="hand"></div>
-    <button id="deal-button">Deal Hand</button>
+    <div class="boards">
+      <div id="board-a" class="board-row"></div>
+      <div id="board-b" class="board-row"></div>
+    </div>
+    <div class="controls">
+      <button id="deal-button">Deal Hand</button>
+      <button id="next-button">Next Round</button>
+    </div>
   </div>
 `;
 
-const handEl = document.querySelector<HTMLDivElement>("#hand")!;
-const dealButton = document.querySelector<HTMLButtonElement>("#deal-button")!;
+document.querySelector<HTMLButtonElement>("#deal-button")!.addEventListener("click", dealNewHand);
+document.querySelector<HTMLButtonElement>("#next-button")!.addEventListener("click", revealNextRound);
 
-dealButton.addEventListener("click", () => dealNewHand(handEl));
-dealNewHand(handEl);
+render();
