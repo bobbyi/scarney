@@ -9,6 +9,7 @@ import {
   type ScarneyDeal,
   type Rank,
 } from "./game/deck";
+import { classifyHand, handPoints } from "./game/scoring";
 
 const RANK_FILE_NAMES: Record<Rank, string> = {
   "2": "2",
@@ -73,6 +74,8 @@ function render() {
   const boardAEl = document.querySelector<HTMLDivElement>("#board-a")!;
   const boardBEl = document.querySelector<HTMLDivElement>("#board-b")!;
   const nextButton = document.querySelector<HTMLButtonElement>("#next-button")!;
+  const handTypeEl = document.querySelector<HTMLDivElement>("#hand-type")!;
+  const pointTotalEl = document.querySelector<HTMLDivElement>("#point-total")!;
 
   handEl.innerHTML = hand.map((card) => renderCard(card)).join("");
   boardAEl.innerHTML = deal.boardA
@@ -80,6 +83,10 @@ function render() {
     .join("");
   boardBEl.innerHTML = deal.boardB.map((card, i) => renderBoardSlot(card, i, [])).join("");
   nextButton.disabled = revealedCount >= BOARD_SIZE;
+
+  const revealedBottomCards = deal.boardB.slice(0, revealedCount);
+  handTypeEl.textContent = classifyHand([...hand, ...revealedBottomCards]);
+  pointTotalEl.textContent = String(handPoints(hand));
 }
 
 function dealNewHand() {
@@ -105,7 +112,16 @@ function revealNextRound() {
 const app = document.querySelector<HTMLDivElement>("#app")!;
 app.innerHTML = `
   <div class="table">
-    <h1>Scarney</h1>
+    <div class="stats">
+      <div class="stat">
+        <div class="stat-label">Hand</div>
+        <div class="stat-value" id="hand-type"></div>
+      </div>
+      <div class="stat">
+        <div class="stat-label">Points</div>
+        <div class="stat-value" id="point-total"></div>
+      </div>
+    </div>
     <div id="hand" class="hand"></div>
     <div class="boards">
       <div id="board-a" class="board-row"></div>

@@ -114,3 +114,17 @@ test("discards both hand cards when two share the revealed rank, via a fixed ?de
   await page.locator("#deal-button").click();
   expect(await handRanks(page)).toEqual(["K", "K", "2", "3", "4"]);
 });
+
+test("hand type and points update as the hand shrinks and the bottom board reveals", async ({ page }) => {
+  const deck = "KS,KH,2C,3D,4H,KC,5S,6D,7H,8C,9S,10D,JC,QH,AC";
+  await page.goto(`/?deck=${deck}`);
+
+  // before any reveal: pool is just the 5-card hand (two kings -> Pair), points = 10+10+2+3+4
+  await expect(page.locator("#hand-type")).toHaveText("Pair");
+  await expect(page.locator("#point-total")).toHaveText("29");
+
+  // round 1: both kings discard (High Card left: 2,3,4), bottom board reveals 9S -> still High Card
+  await page.locator("#next-button").click();
+  await expect(page.locator("#hand-type")).toHaveText("High Card");
+  await expect(page.locator("#point-total")).toHaveText("9");
+});
