@@ -27,7 +27,7 @@ const RANK_FILE_NAMES: Record<Rank, string> = {
 };
 
 const BOARD_SIZE = 5;
-const DISCARD_STACK_OFFSET_PX = 14;
+const DISCARD_STACK_OFFSET_PX = 28;
 
 // Debug hook: ?deck=KS,KH,2C,... in the URL fixes the deck for reproducing a specific scenario.
 function nextDeck(): Card[] {
