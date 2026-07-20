@@ -96,7 +96,7 @@ let actionsThisRound: number;
 let facingBet: boolean;
 
 function cardImageSrc(card: Card): string {
-  return `/cards/${RANK_FILE_NAMES[card.rank]}_of_${card.suit}.svg`;
+  return `${import.meta.env.BASE_URL}cards/${RANK_FILE_NAMES[card.rank]}_of_${card.suit}.svg`;
 }
 
 function renderCard(card: Card, className = "card", style = ""): string {
@@ -105,7 +105,7 @@ function renderCard(card: Card, className = "card", style = ""): string {
 }
 
 function renderCardBack(): string {
-  return `<img class="card back" src="/cards/back.svg" alt="face-down card">`;
+  return `<img class="card back" src="${import.meta.env.BASE_URL}cards/back.svg" alt="face-down card">`;
 }
 
 function renderBoardSlot(card: Card, index: number, discards: Card[]): string {
