@@ -96,6 +96,7 @@ let pot: number;
 let buttonHolder: Player = "player";
 let opponentFirst: boolean;
 let resolving = false;
+let frozenControlsHtml: string | null = null;
 let bannerMessage: string | null = null;
 
 // Per-round betting state.
@@ -204,33 +205,37 @@ function renderTableCenter(): string {
   return `<div class="pot-amount">${formatMoney(pot)}</div><div class="center-label">Pot</div>`;
 }
 
+// Renders the live Check/Bet or Call/Raise/Fold set from current state (amounts included).
+function renderActionButtons(disabled: boolean): string {
+  const disabledAttr = disabled ? " disabled" : "";
+  if (facingBet) {
+    const owed = amountOwed(playerContributedThisRound, opponentContributedThisRound);
+    const raiseCost = contributionForResponse("raise", owed, revealedCount);
+    return `
+      <button data-action="call"${disabledAttr}>Call (${formatMoney(owed)})</button>
+      <button data-action="raise"${disabledAttr}>Raise (${formatMoney(raiseCost)})</button>
+      <button data-action="fold"${disabledAttr}>Fold</button>
+    `;
+  }
+  const stake = STAKES[revealedCount];
+  return `
+    <button data-action="check"${disabledAttr}>Check</button>
+    <button data-action="bet"${disabledAttr}>Bet (${formatMoney(stake)})</button>
+  `;
+}
+
 function renderControls(): string {
   if (handOutcome) {
     return `<button data-action="next-hand"${resolving ? " disabled" : ""}>Next Hand</button>`;
   }
   if (resolving) {
-    // While an action is resolving, the player's own contribution has already been applied (so
-    // the Stack/Pot numbers can update immediately), which makes a live-recomputed Call/Raise
-    // amount read as stale (e.g. "Call ($0)") relative to the decision that was just made. Show
-    // plain disabled labels instead until the round's state has fully settled for next time.
-    return facingBet
-      ? `<button disabled>Call</button><button disabled>Raise</button><button disabled>Fold</button>`
-      : `<button disabled>Check</button><button disabled>Bet</button>`;
+    // The player's own contribution is applied (so Stack/Pot can update immediately) before the
+    // round's state fully settles, which would make a live-recomputed Call/Raise amount flash as
+    // stale (e.g. "Call ($0)"). Show whatever the buttons said right before the click instead of
+    // recomputing, so the label stays put instead of visibly changing while disabled.
+    return frozenControlsHtml ?? renderActionButtons(true);
   }
-  if (facingBet) {
-    const owed = amountOwed(playerContributedThisRound, opponentContributedThisRound);
-    const raiseCost = contributionForResponse("raise", owed, revealedCount);
-    return `
-      <button data-action="call">Call (${formatMoney(owed)})</button>
-      <button data-action="raise">Raise (${formatMoney(raiseCost)})</button>
-      <button data-action="fold">Fold</button>
-    `;
-  }
-  const stake = STAKES[revealedCount];
-  return `
-    <button data-action="check">Check</button>
-    <button data-action="bet">Bet (${formatMoney(stake)})</button>
-  `;
+  return renderActionButtons(false);
 }
 
 function render() {
@@ -394,6 +399,7 @@ async function continueRound() {
 
 async function resolveOpening(action: OpeningAction) {
   if (resolving) return;
+  frozenControlsHtml = renderActionButtons(true);
   resolving = true;
   const contribution = contributionForOpening(action, revealedCount);
   playerBalance -= contribution;
@@ -403,16 +409,19 @@ async function resolveOpening(action: OpeningAction) {
   render();
   await continueRound();
   resolving = false;
+  frozenControlsHtml = null;
   render();
 }
 
 async function resolveFacingBet(action: FacingBetAction) {
   if (resolving) return;
+  frozenControlsHtml = renderActionButtons(true);
   resolving = true;
   if (action === "fold") {
     handOutcome = { type: "fold", folder: "player" };
     playerBalance += settleFold(pot, "player").playerShare; // always 0, kept for symmetry/clarity
     resolving = false;
+    frozenControlsHtml = null;
     render();
     return;
   }
@@ -425,6 +434,7 @@ async function resolveFacingBet(action: FacingBetAction) {
   render();
   await continueRound();
   resolving = false;
+  frozenControlsHtml = null;
   render();
 }
 
