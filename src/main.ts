@@ -175,6 +175,34 @@ function formatMoney(amount: number): string {
 
 // What sits in the middle of the table: the running pot while a hand is in progress, or the
 // showdown/fold outcome once it's over.
+// Caps how big the chip visualization grows - past this, the pot keeps counting up normally,
+// the chip art just stops piling on more.
+const MAX_VISUAL_POT = 100;
+const CHIPS_PER_TOWER = 5;
+const CHIP_STACK_OFFSET_PX = 6;
+
+function renderChipTowers(count: number, colorClass: string): string {
+  const towers: string[] = [];
+  for (let remaining = count; remaining > 0; remaining -= CHIPS_PER_TOWER) {
+    const size = Math.min(remaining, CHIPS_PER_TOWER);
+    const chips = Array.from(
+      { length: size },
+      (_, i) => `<div class="chip ${colorClass}" style="bottom: ${i * CHIP_STACK_OFFSET_PX}px"></div>`,
+    ).join("");
+    towers.push(`<div class="chip-tower">${chips}</div>`);
+  }
+  return towers.join("");
+}
+
+// $1 chips are white, $5 chips are red - (pot mod 5) whites and (pot div 5) reds.
+function renderChipStack(): string {
+  const visualPot = Math.min(Math.floor(pot), MAX_VISUAL_POT);
+  const reds = Math.floor(visualPot / 5);
+  const whites = visualPot % 5;
+  if (reds === 0 && whites === 0) return "";
+  return `<div class="chip-stack">${renderChipTowers(reds, "red")}${renderChipTowers(whites, "white")}</div>`;
+}
+
 function renderTableCenter(): string {
   if (handOutcome?.type === "showdown") {
     const { high, low } = handOutcome;
@@ -191,7 +219,7 @@ function renderTableCenter(): string {
         ? `Low ties at ${playerPoints} points`
         : `${winnerVerb(low)} the low with ${low === "player" ? playerPoints : opponentPoints} points`;
 
-    return `<div class="center-line">${highLine}</div><div class="center-line">${lowLine}</div>`;
+    return `<div class="pot-plaque"><div class="center-line">${highLine}</div><div class="center-line">${lowLine}</div></div>`;
   }
 
   if (handOutcome?.type === "fold") {
@@ -199,10 +227,13 @@ function renderTableCenter(): string {
       handOutcome.folder === "player"
         ? `You fold — Opponent wins ${formatMoney(pot)}`
         : `Opponent folds — You win ${formatMoney(pot)}`;
-    return `<div class="center-line">${line}</div>`;
+    return `<div class="pot-plaque"><div class="center-line">${line}</div></div>`;
   }
 
-  return `<div class="pot-amount">${formatMoney(pot)}</div><div class="center-label">Pot</div>`;
+  return `
+    ${renderChipStack()}
+    <div class="pot-plaque"><div class="pot-amount">${formatMoney(pot)}</div><div class="center-label">Pot</div></div>
+  `;
 }
 
 // Renders the live Check/Bet or Call/Raise/Fold set from current state (amounts included).

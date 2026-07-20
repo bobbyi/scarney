@@ -67,6 +67,28 @@ test("antes $1 from each player, announces it and the opponent's forced check as
   await expect(potAmount(page)).toHaveText("$2");
   await expect(page.locator("#player-dealer-badge")).toBeVisible();
   await expect(page.locator("#opponent-dealer-badge")).not.toBeVisible();
+
+  // $2 pot = 2 white ($1) chips, 0 red ($5) chips
+  await expect(page.locator(".chip.white")).toHaveCount(2);
+  await expect(page.locator(".chip.red")).toHaveCount(0);
+});
+
+test("shows a chip stack next to the pot - white ($1) and red ($5) chips for pot mod/div 5", async ({ page }) => {
+  await page.goto(`/?${FAST_CALLING_STATION}`);
+
+  await betButton(page).click(); // pot 2 -> 4
+  await betButton(page).click(); // pot 4 -> 6
+  await expect(potAmount(page)).toHaveText("$6");
+  await expect(page.locator(".chip.red")).toHaveCount(1);
+  await expect(page.locator(".chip.white")).toHaveCount(1);
+
+  // the chip stack disappears once the hand ends and the results plaque takes over
+  for (let i = 0; i < 4; i++) {
+    await checkButton(page).click();
+  }
+  await expect(nextHandButton(page)).toBeVisible();
+  await expect(page.locator(".chip.red")).toHaveCount(0);
+  await expect(page.locator(".chip.white")).toHaveCount(0);
 });
 
 test("Check reveals one card on each board per click and leaves balance/pot unchanged", async ({ page }) => {
