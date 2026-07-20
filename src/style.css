@@ -73,7 +73,7 @@ body {
 /* Dimmed but still legible - filter-only (no opacity), since an opacity change would let a
    card underneath show through a dimmed one stacked on top of it in a discard pile. */
 .card.dimmed {
-  filter: grayscale(45%) brightness(0.7);
+  filter: grayscale(70%) brightness(0.55);
 }
 
 .card.placeholder {
