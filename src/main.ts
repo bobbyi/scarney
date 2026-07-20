@@ -54,6 +54,7 @@ const DISCARD_STACK_OFFSET_PX = 28;
 const FAST = new URLSearchParams(window.location.search).has("fast");
 const BANNER_HOLD_MS = FAST ? 5 : 900;
 const BANNER_TRANSITION_MS = FAST ? 5 : 220;
+const REVEAL_PAUSE_MS = FAST ? 5 : 400;
 
 // Debug hook: ?deck=KS,KH,2C,... in the URL fixes the deck for reproducing a specific scenario.
 function nextDeck(): Card[] {
@@ -294,6 +295,9 @@ async function startRound() {
   actionsThisRound = 0;
   facingBet = false;
   if (opponentFirst) {
+    // Give the just-dealt/discarded cards a beat on screen before announcing what the opponent
+    // does with them - otherwise the two land in the same paint and read as simultaneous.
+    await delay(REVEAL_PAUSE_MS);
     const { message } = resolveOpponentTurn();
     facingBet = opponentContributedThisRound > playerContributedThisRound;
     render();
