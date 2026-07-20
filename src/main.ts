@@ -5,6 +5,8 @@ import {
   dealScarney,
   partitionByRank,
   parseDeck,
+  RANKS,
+  SUITS,
   type Card,
   type ScarneyDeal,
   type Rank,
@@ -105,6 +107,18 @@ function cardImageSrc(card: Card): string {
   return `${import.meta.env.BASE_URL}cards/${RANK_FILE_NAMES[card.rank]}_of_${card.suit}.svg`;
 }
 
+// Warms the browser's image cache for every card face (+ the back) up front, so that when a
+// reveal/discard sets a fresh <img src> mid-hand, the image is already decoded and paints
+// instantly alongside the render instead of trailing in a moment after the action banner.
+function preloadCardImages() {
+  for (const suit of SUITS) {
+    for (const rank of RANKS) {
+      new Image().src = cardImageSrc({ rank, suit });
+    }
+  }
+  new Image().src = `${import.meta.env.BASE_URL}cards/back.svg`;
+}
+
 function renderCard(card: Card, className = "card", style = ""): string {
   const styleAttr = style ? ` style="${style}"` : "";
   return `<img class="${className}" src="${cardImageSrc(card)}" alt="${card.rank} of ${card.suit}"${styleAttr}>`;
@@ -173,7 +187,7 @@ function renderControls(): string {
     const owed = amountOwed(playerContributedThisRound, opponentContributedThisRound);
     const raiseCost = contributionForResponse("raise", owed, revealedCount);
     return `
-      <button data-action="call"${disabledAttr}>Call ${formatMoney(owed)}</button>
+      <button data-action="call"${disabledAttr}>Call (${formatMoney(owed)})</button>
       <button data-action="raise"${disabledAttr}>Raise (${formatMoney(raiseCost)})</button>
       <button data-action="fold"${disabledAttr}>Fold</button>
     `;
@@ -181,7 +195,7 @@ function renderControls(): string {
   const stake = STAKES[revealedCount];
   return `
     <button data-action="check"${disabledAttr}>Check</button>
-    <button data-action="bet"${disabledAttr}>Bet ${formatMoney(stake)}</button>
+    <button data-action="bet"${disabledAttr}>Bet (${formatMoney(stake)})</button>
   `;
 }
 
@@ -459,4 +473,5 @@ document.querySelector<HTMLDivElement>("#controls")!.addEventListener("click", (
   }
 });
 
+preloadCardImages();
 beginHand();

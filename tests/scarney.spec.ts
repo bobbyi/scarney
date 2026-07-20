@@ -48,7 +48,7 @@ test("deals a hand of 5 cards and hides both boards on load", async ({ page }) =
   expect(await revealedCount(page, "#board-b")).toBe(0);
 
   await expect(checkButton(page)).toBeEnabled();
-  await expect(betButton(page)).toHaveText("Bet $1");
+  await expect(betButton(page)).toHaveText("Bet ($1)");
 });
 
 test("opponent is dealt 5 face-down cards on load", async ({ page }) => {
@@ -289,7 +289,7 @@ test("an opponent's bet presents Call/Raise/Fold, and calling closes the round",
   await expect(bannerText(page)).toHaveText("Opponent bets $1");
   await expect(callButton(page)).toBeEnabled();
 
-  await expect(callButton(page)).toHaveText("Call $1");
+  await expect(callButton(page)).toHaveText("Call ($1)");
   await expect(raiseButton(page)).toHaveText("Raise ($2)");
   await expect(foldButton(page)).toBeVisible();
   await expect(potAmount(page)).toHaveText("$3");
@@ -300,14 +300,14 @@ test("an opponent's bet presents Call/Raise/Fold, and calling closes the round",
   await expect(bannerText(page)).toHaveText("Opponent bets $1");
   await expect(callButton(page)).toBeEnabled();
   expect(await revealedCount(page, "#board-a")).toBe(1);
-  await expect(callButton(page)).toHaveText("Call $1");
+  await expect(callButton(page)).toHaveText("Call ($1)");
   await expect(potAmount(page)).toHaveText("$5");
 });
 
 test("raising keeps the round open (no reveal) until someone calls", async ({ page }) => {
   await page.goto("/?opponent=aggressor"); // real timing to observe the banner
   await expect(callButton(page)).toBeEnabled();
-  await expect(callButton(page)).toHaveText("Call $1");
+  await expect(callButton(page)).toHaveText("Call ($1)");
 
   await raiseButton(page).click();
 
@@ -315,7 +315,7 @@ test("raising keeps the round open (no reveal) until someone calls", async ({ pa
   await expect(bannerText(page)).toHaveText("Opponent raises");
   await expect(callButton(page)).toBeEnabled();
   expect(await revealedCount(page, "#board-a")).toBe(0);
-  await expect(callButton(page)).toHaveText("Call $1");
+  await expect(callButton(page)).toHaveText("Call ($1)");
   await expect(potAmount(page)).toHaveText("$7");
 
   await callButton(page).click();
@@ -323,7 +323,7 @@ test("raising keeps the round open (no reveal) until someone calls", async ({ pa
   // now it closes, board reveals for round 0, and round 1 opens with a fresh bet
   await expect(callButton(page)).toBeEnabled();
   expect(await revealedCount(page, "#board-a")).toBe(1);
-  await expect(callButton(page)).toHaveText("Call $1");
+  await expect(callButton(page)).toHaveText("Call ($1)");
 });
 
 test("the opponent folding ends the hand immediately without revealing their cards", async ({ page }) => {

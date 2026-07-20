@@ -20,8 +20,8 @@ export interface Card {
   suit: Suit;
 }
 
-const SUITS: Suit[] = ["spades", "hearts", "diamonds", "clubs"];
-const RANKS: Rank[] = [
+export const SUITS: Suit[] = ["spades", "hearts", "diamonds", "clubs"];
+export const RANKS: Rank[] = [
   "2",
   "3",
   "4",
