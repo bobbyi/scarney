@@ -10,7 +10,8 @@ import {
   type Rank,
 } from "./game/deck";
 import { classifyHand, handPoints } from "./game/scoring";
-import { determineHighWinner, determineLowWinner, type Winner } from "./game/showdown";
+import { determineHighWinner, determineLowWinner, type HighResult, type Winner } from "./game/showdown";
+import { resolveBettingRound, settleShowdown, STAKES, type BettingAction, type OpponentAction } from "./game/betting";
 
 const RANK_FILE_NAMES: Record<Rank, string> = {
   "2": "2",
@@ -52,6 +53,10 @@ let hand: Card[] = deal.hand;
 let opponentHand: Card[] = deal.opponentHand;
 let discardPiles: Card[][] = Array.from({ length: BOARD_SIZE }, () => []);
 let showdownRevealed = false;
+let playerBalance = 100;
+let pot = 0;
+let lastOpponentAction: OpponentAction | null = null;
+let showdownResult: { high: HighResult; low: Winner } | null = null;
 
 function cardImageSrc(card: Card): string {
   return `/cards/${RANK_FILE_NAMES[card.rank]}_of_${card.suit}.svg`;
@@ -80,30 +85,54 @@ function winnerVerb(winner: Winner): string {
   return winner === "player" ? "You win" : "Opponent wins";
 }
 
-function renderResults(revealedBottomCards: Card[]): string {
-  if (!showdownRevealed) return "";
+function renderResults(): string {
+  let highLine = "";
+  let lowLine = "";
 
-  const playerPool = [...hand, ...revealedBottomCards];
-  const opponentPool = [...opponentHand, ...revealedBottomCards];
-  const high = determineHighWinner(playerPool, opponentPool);
-  const playerPoints = handPoints(hand);
-  const opponentPoints = handPoints(opponentHand);
-  const low = determineLowWinner(playerPoints, opponentPoints);
+  if (showdownResult) {
+    const { high, low } = showdownResult;
+    const playerPoints = handPoints(hand);
+    const opponentPoints = handPoints(opponentHand);
 
-  const highLine =
-    high.winner === "tie"
-      ? `High ties (${high.playerHandName})`
-      : `${winnerVerb(high.winner)} the high with ${high.winner === "player" ? high.playerHandName : high.opponentHandName}`;
+    highLine =
+      high.winner === "tie"
+        ? `High ties (${high.playerHandName})`
+        : `${winnerVerb(high.winner)} the high with ${high.winner === "player" ? high.playerHandName : high.opponentHandName}`;
 
-  const lowLine =
-    low === "tie"
-      ? `Low ties at ${playerPoints} points`
-      : `${winnerVerb(low)} the low with ${low === "player" ? playerPoints : opponentPoints} points`;
+    lowLine =
+      low === "tie"
+        ? `Low ties at ${playerPoints} points`
+        : `${winnerVerb(low)} the low with ${low === "player" ? playerPoints : opponentPoints} points`;
+  }
 
+  // Always render both lines (even empty) so the results block holds a constant height and
+  // showing the showdown text doesn't grow the page and shift the controls below it.
   return `
     <div class="result-line">${highLine}</div>
     <div class="result-line">${lowLine}</div>
   `;
+}
+
+function formatMoney(amount: number): string {
+  return `$${amount % 1 === 0 ? amount : amount.toFixed(2)}`;
+}
+
+function renderControls(): string {
+  if (showdownRevealed) {
+    return `<button data-action="next-hand">Next Hand</button>`;
+  }
+  const stake = STAKES[revealedCount];
+  return `
+    <button data-action="check">Check</button>
+    <button data-action="bet">Bet ${formatMoney(stake)}</button>
+  `;
+}
+
+function renderPotStatus(): string {
+  if (showdownRevealed) return "";
+  const opponentLine =
+    lastOpponentAction === "check" ? " — Opponent checks" : lastOpponentAction === "call" ? " — Opponent calls" : "";
+  return `Pot: ${formatMoney(pot)}${opponentLine}`;
 }
 
 function render() {
@@ -111,9 +140,11 @@ function render() {
   const opponentHandEl = document.querySelector<HTMLDivElement>("#opponent-hand")!;
   const boardAEl = document.querySelector<HTMLDivElement>("#board-a")!;
   const boardBEl = document.querySelector<HTMLDivElement>("#board-b")!;
-  const nextButton = document.querySelector<HTMLButtonElement>("#next-button")!;
+  const controlsEl = document.querySelector<HTMLDivElement>("#controls")!;
+  const potStatusEl = document.querySelector<HTMLDivElement>("#pot-status")!;
   const handTypeEl = document.querySelector<HTMLDivElement>("#hand-type")!;
   const pointTotalEl = document.querySelector<HTMLDivElement>("#point-total")!;
+  const balanceEl = document.querySelector<HTMLDivElement>("#balance")!;
   const resultsEl = document.querySelector<HTMLDivElement>("#results")!;
 
   handEl.innerHTML = hand.map((card) => renderCard(card)).join("");
@@ -125,14 +156,14 @@ function render() {
     .join("");
   boardBEl.innerHTML = deal.boardB.map((card, i) => renderBoardSlot(card, i, [])).join("");
 
-  const fullyRevealed = revealedCount >= BOARD_SIZE;
-  nextButton.textContent = fullyRevealed ? "Showdown" : "Next Round";
-  nextButton.disabled = fullyRevealed && showdownRevealed;
+  potStatusEl.textContent = renderPotStatus();
+  controlsEl.innerHTML = renderControls();
 
   const revealedBottomCards = deal.boardB.slice(0, revealedCount);
   handTypeEl.textContent = classifyHand([...hand, ...revealedBottomCards]);
   pointTotalEl.textContent = String(handPoints(hand));
-  resultsEl.innerHTML = renderResults(revealedBottomCards);
+  balanceEl.textContent = formatMoney(playerBalance);
+  resultsEl.innerHTML = renderResults();
 }
 
 function dealNewHand() {
@@ -142,10 +173,18 @@ function dealNewHand() {
   opponentHand = deal.opponentHand;
   discardPiles = Array.from({ length: BOARD_SIZE }, () => []);
   showdownRevealed = false;
+  pot = 0;
+  lastOpponentAction = null;
+  showdownResult = null;
   render();
 }
 
-function revealNextRound() {
+function resolveRound(action: BettingAction) {
+  const { potContribution, opponentAction } = resolveBettingRound(action, revealedCount);
+  playerBalance -= potContribution;
+  pot += potContribution * 2;
+  lastOpponentAction = opponentAction;
+
   if (revealedCount < BOARD_SIZE) {
     const slotIndex = revealedCount;
     const revealedTopCard = deal.boardA[slotIndex];
@@ -155,11 +194,15 @@ function revealNextRound() {
     opponentHand = opponentPartition.remaining;
     discardPiles[slotIndex] = [...playerPartition.matching, ...opponentPartition.matching];
     revealedCount++;
-    render();
-  } else if (!showdownRevealed) {
+  } else {
     showdownRevealed = true;
-    render();
+    const revealedBottomCards = deal.boardB;
+    const high = determineHighWinner([...hand, ...revealedBottomCards], [...opponentHand, ...revealedBottomCards]);
+    const low = determineLowWinner(handPoints(hand), handPoints(opponentHand));
+    showdownResult = { high, low };
+    playerBalance += settleShowdown(pot, high.winner, low).playerShare;
   }
+  render();
 }
 
 const app = document.querySelector<HTMLDivElement>("#app")!;
@@ -174,6 +217,10 @@ app.innerHTML = `
         <div class="stat-label">Points</div>
         <div class="stat-value" id="point-total"></div>
       </div>
+      <div class="stat">
+        <div class="stat-label">Balance</div>
+        <div class="stat-value" id="balance"></div>
+      </div>
     </div>
     <div id="hand" class="hand"></div>
     <div class="boards">
@@ -182,14 +229,18 @@ app.innerHTML = `
     </div>
     <div id="opponent-hand" class="hand opponent-hand"></div>
     <div id="results" class="results"></div>
-    <div class="controls">
-      <button id="deal-button">Deal Hand</button>
-      <button id="next-button">Next Round</button>
-    </div>
+    <div id="pot-status" class="pot-status"></div>
+    <div id="controls" class="controls"></div>
   </div>
 `;
 
-document.querySelector<HTMLButtonElement>("#deal-button")!.addEventListener("click", dealNewHand);
-document.querySelector<HTMLButtonElement>("#next-button")!.addEventListener("click", revealNextRound);
+document.querySelector<HTMLDivElement>("#controls")!.addEventListener("click", (event) => {
+  const action = (event.target as HTMLElement).dataset.action;
+  if (action === "check" || action === "bet") {
+    resolveRound(action);
+  } else if (action === "next-hand") {
+    dealNewHand();
+  }
+});
 
 render();

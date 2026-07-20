@@ -75,10 +75,21 @@ body {
   flex-direction: column;
   align-items: center;
   gap: 0.25rem;
-  min-height: 1.5em;
   color: white;
   font-size: 1.1rem;
   font-weight: 600;
+  text-align: center;
+}
+
+.result-line {
+  min-height: 1.5em;
+}
+
+.pot-status {
+  min-height: 1.5em;
+  color: white;
+  opacity: 0.85;
+  font-size: 0.95rem;
   text-align: center;
 }
 
