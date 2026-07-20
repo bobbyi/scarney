@@ -48,6 +48,11 @@ const RANK_FILE_NAMES: Record<Rank, string> = {
 const BOARD_SIZE = 5;
 const DISCARD_STACK_OFFSET_PX = 28;
 
+// Debug hook: ?fast=1 collapses the action-banner timing to near-zero for automated tests.
+const FAST = new URLSearchParams(window.location.search).has("fast");
+const BANNER_HOLD_MS = FAST ? 5 : 900;
+const BANNER_TRANSITION_MS = FAST ? 5 : 220;
+
 // Debug hook: ?deck=KS,KH,2C,... in the URL fixes the deck for reproducing a specific scenario.
 function nextDeck(): Card[] {
   const deckParam = new URLSearchParams(window.location.search).get("deck");
@@ -82,18 +87,19 @@ let revealedCount: number;
 let hand: Card[];
 let opponentHand: Card[];
 let discardPiles: Card[][];
-let handOutcome: HandOutcome | null;
+let handOutcome: HandOutcome | null = null;
 let playerBalance = 100;
 let pot: number;
-let potNotes: string[];
 let buttonHolder: Player = "player";
 let opponentFirst: boolean;
+let resolving = false;
+let bannerMessage: string | null = null;
 
 // Per-round betting state.
 let playerContributedThisRound: number;
 let opponentContributedThisRound: number;
 let actionsThisRound: number;
-let facingBet: boolean;
+let facingBet = false;
 
 function cardImageSrc(card: Card): string {
   return `${import.meta.env.BASE_URL}cards/${RANK_FILE_NAMES[card.rank]}_of_${card.suit}.svg`;
@@ -122,71 +128,61 @@ function winnerVerb(winner: Winner): string {
   return winner === "player" ? "You win" : "Opponent wins";
 }
 
-function renderResults(): string {
-  let line1 = "";
-  let line2 = "";
+function formatMoney(amount: number): string {
+  return `$${amount % 1 === 0 ? amount : amount.toFixed(2)}`;
+}
 
+// What sits in the middle of the table: the running pot while a hand is in progress, or the
+// showdown/fold outcome once it's over.
+function renderTableCenter(): string {
   if (handOutcome?.type === "showdown") {
     const { high, low } = handOutcome;
     const playerPoints = handPoints(hand);
     const opponentPoints = handPoints(opponentHand);
 
-    line1 =
+    const highLine =
       high.winner === "tie"
         ? `High ties (${high.playerHandName})`
         : `${winnerVerb(high.winner)} the high with ${high.winner === "player" ? high.playerHandName : high.opponentHandName}`;
 
-    line2 =
+    const lowLine =
       low === "tie"
         ? `Low ties at ${playerPoints} points`
         : `${winnerVerb(low)} the low with ${low === "player" ? playerPoints : opponentPoints} points`;
-  } else if (handOutcome?.type === "fold") {
-    line1 =
+
+    return `<div class="center-line">${highLine}</div><div class="center-line">${lowLine}</div>`;
+  }
+
+  if (handOutcome?.type === "fold") {
+    const line =
       handOutcome.folder === "player"
         ? `You fold — Opponent wins ${formatMoney(pot)}`
         : `Opponent folds — You win ${formatMoney(pot)}`;
+    return `<div class="center-line">${line}</div>`;
   }
 
-  // Always render both lines (even empty) so the results block holds a constant height and
-  // showing the showdown text doesn't grow the page and shift the controls below it.
-  return `
-    <div class="result-line">${line1}</div>
-    <div class="result-line">${line2}</div>
-  `;
-}
-
-function formatMoney(amount: number): string {
-  return `$${amount % 1 === 0 ? amount : amount.toFixed(2)}`;
+  return `<div class="pot-amount">${formatMoney(pot)}</div><div class="center-label">Pot</div>`;
 }
 
 function renderControls(): string {
+  const disabledAttr = resolving ? " disabled" : "";
   if (handOutcome) {
-    return `<button data-action="next-hand">Next Hand</button>`;
+    return `<button data-action="next-hand"${disabledAttr}>Next Hand</button>`;
   }
   if (facingBet) {
     const owed = amountOwed(playerContributedThisRound, opponentContributedThisRound);
     const raiseCost = contributionForResponse("raise", owed, revealedCount);
     return `
-      <button data-action="call">Call ${formatMoney(owed)}</button>
-      <button data-action="raise">Raise ${formatMoney(raiseCost)}</button>
-      <button data-action="fold">Fold</button>
+      <button data-action="call"${disabledAttr}>Call ${formatMoney(owed)}</button>
+      <button data-action="raise"${disabledAttr}>Raise (${formatMoney(raiseCost)})</button>
+      <button data-action="fold"${disabledAttr}>Fold</button>
     `;
   }
   const stake = STAKES[revealedCount];
   return `
-    <button data-action="check">Check</button>
-    <button data-action="bet">Bet ${formatMoney(stake)}</button>
+    <button data-action="check"${disabledAttr}>Check</button>
+    <button data-action="bet"${disabledAttr}>Bet ${formatMoney(stake)}</button>
   `;
-}
-
-function renderPotStatus(): string {
-  if (handOutcome) return "";
-  const notes = potNotes.length ? ` — ${potNotes.join("; ")}` : "";
-  return `Pot: ${formatMoney(pot)}${notes}`;
-}
-
-function renderDealerBadge(holder: Player): string {
-  return buttonHolder === holder ? `<span class="dealer-badge">D</span>` : "";
 }
 
 function render() {
@@ -194,17 +190,17 @@ function render() {
   const opponentHandEl = document.querySelector<HTMLDivElement>("#opponent-hand")!;
   const boardAEl = document.querySelector<HTMLDivElement>("#board-a")!;
   const boardBEl = document.querySelector<HTMLDivElement>("#board-b")!;
+  const tableCenterEl = document.querySelector<HTMLDivElement>("#table-center")!;
   const controlsEl = document.querySelector<HTMLDivElement>("#controls")!;
-  const potStatusEl = document.querySelector<HTMLDivElement>("#pot-status")!;
   const handTypeEl = document.querySelector<HTMLDivElement>("#hand-type")!;
   const pointTotalEl = document.querySelector<HTMLDivElement>("#point-total")!;
   const balanceEl = document.querySelector<HTMLDivElement>("#balance")!;
-  const resultsEl = document.querySelector<HTMLDivElement>("#results")!;
-  const playerDealerBadgeEl = document.querySelector<HTMLDivElement>("#player-dealer-badge")!;
-  const opponentDealerBadgeEl = document.querySelector<HTMLDivElement>("#opponent-dealer-badge")!;
+  const playerDealerBadgeEl = document.querySelector<HTMLSpanElement>("#player-dealer-badge")!;
+  const opponentDealerBadgeEl = document.querySelector<HTMLSpanElement>("#opponent-dealer-badge")!;
+  const bannerTextEl = document.querySelector<HTMLDivElement>("#banner-text")!;
 
-  playerDealerBadgeEl.innerHTML = renderDealerBadge("player");
-  opponentDealerBadgeEl.innerHTML = renderDealerBadge("opponent");
+  playerDealerBadgeEl.classList.toggle("hidden", buttonHolder !== "player");
+  opponentDealerBadgeEl.classList.toggle("hidden", buttonHolder !== "opponent");
 
   handEl.innerHTML = hand.map((card) => renderCard(card)).join("");
   opponentHandEl.innerHTML =
@@ -216,20 +212,42 @@ function render() {
     .join("");
   boardBEl.innerHTML = deal.boardB.map((card, i) => renderBoardSlot(card, i, [])).join("");
 
-  potStatusEl.textContent = renderPotStatus();
+  tableCenterEl.innerHTML = renderTableCenter();
   controlsEl.innerHTML = renderControls();
 
   const revealedBottomCards = deal.boardB.slice(0, revealedCount);
   handTypeEl.textContent = classifyHand([...hand, ...revealedBottomCards]);
   pointTotalEl.textContent = String(handPoints(hand));
   balanceEl.textContent = formatMoney(playerBalance);
-  resultsEl.innerHTML = renderResults();
+
+  bannerTextEl.textContent = bannerMessage ?? "";
+  bannerTextEl.classList.toggle("visible", bannerMessage !== null);
+}
+
+function delay(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+// Shows a large transient banner (e.g. "Opponent calls") over the whole screen, then clears it.
+// Used only for the opponent's actions - the player already sees their own click reflected.
+async function showBanner(message: string) {
+  bannerMessage = message;
+  render();
+  await delay(BANNER_TRANSITION_MS + BANNER_HOLD_MS);
+  bannerMessage = null;
+  render();
+  await delay(BANNER_TRANSITION_MS);
+}
+
+interface OpponentTurnResult {
+  message: string;
+  folded: boolean;
 }
 
 // Resolves the opponent's single turn: responds to a live bet (call/raise/fold) if one is
 // owed, otherwise makes their own opening decision (check/bet). Never called more than once
 // per player click, since with two players every action is answered by exactly one response.
-function resolveOpponentTurn() {
+function resolveOpponentTurn(): OpponentTurnResult {
   const owed = amountOwed(opponentContributedThisRound, playerContributedThisRound);
   actionsThisRound++;
   if (owed > 0) {
@@ -237,40 +255,39 @@ function resolveOpponentTurn() {
     if (decision === "fold") {
       handOutcome = { type: "fold", folder: "opponent" };
       playerBalance += settleFold(pot, "opponent").playerShare;
-      potNotes.push("Opponent folds");
-      return;
+      return { message: "Opponent folds", folded: true };
     }
     const contribution = contributionForResponse(decision, owed, revealedCount);
     opponentContributedThisRound += contribution;
     pot += contribution;
-    potNotes.push(decision === "call" ? "Opponent calls" : "Opponent raises");
-  } else {
-    const decision = strategy.decideOpening();
-    if (decision === "bet") {
-      const contribution = contributionForOpening("bet", revealedCount);
-      opponentContributedThisRound += contribution;
-      pot += contribution;
-      potNotes.push(`Opponent bets ${formatMoney(contribution)}`);
-    } else {
-      potNotes.push("Opponent checks");
-    }
+    return { message: decision === "call" ? "Opponent calls" : "Opponent raises", folded: false };
   }
+  const decision = strategy.decideOpening();
+  if (decision === "bet") {
+    const contribution = contributionForOpening("bet", revealedCount);
+    opponentContributedThisRound += contribution;
+    pot += contribution;
+    return { message: `Opponent bets ${formatMoney(contribution)}`, folded: false };
+  }
+  return { message: "Opponent checks", folded: false };
 }
 
 // Resets a round's betting state and, if the opponent holds priority this hand, immediately
-// resolves their opening move (check or bet) before the player's controls are shown.
-function startRound() {
+// resolves and announces their opening move (check or bet) before the player's turn.
+async function startRound() {
   playerContributedThisRound = 0;
   opponentContributedThisRound = 0;
   actionsThisRound = 0;
   facingBet = false;
   if (opponentFirst) {
-    resolveOpponentTurn();
+    const { message } = resolveOpponentTurn();
     facingBet = opponentContributedThisRound > playerContributedThisRound;
+    render();
+    await showBanner(message);
   }
 }
 
-function advanceRoundOrShowdown() {
+async function advanceRoundOrShowdown() {
   if (revealedCount < BOARD_SIZE) {
     const slotIndex = revealedCount;
     const revealedTopCard = deal.boardA[slotIndex];
@@ -280,7 +297,8 @@ function advanceRoundOrShowdown() {
     opponentHand = opponentPartition.remaining;
     discardPiles[slotIndex] = [...playerPartition.matching, ...opponentPartition.matching];
     revealedCount++;
-    startRound();
+    render(); // show the newly revealed cards before any "opening" banner for the next round
+    await startRound();
   } else {
     const revealedBottomCards = deal.boardB;
     const high = determineHighWinner([...hand, ...revealedBottomCards], [...opponentHand, ...revealedBottomCards]);
@@ -291,43 +309,51 @@ function advanceRoundOrShowdown() {
 }
 
 // Called after the player's own action settles their side of this exchange: closes the round
-// immediately if the player's action already matched the opponent, otherwise lets the opponent
-// respond once and re-checks — closing, ending the hand (a fold), or handing it back to the
-// player if the opponent raised.
-function continueRound() {
+// immediately if the player's action already matched the opponent, otherwise announces the
+// opponent's response and re-checks — closing, ending the hand (a fold), or handing it back to
+// the player if the opponent raised.
+async function continueRound() {
   if (isRoundClosed(actionsThisRound, playerContributedThisRound, opponentContributedThisRound)) {
-    advanceRoundOrShowdown();
+    await advanceRoundOrShowdown();
     render();
     return;
   }
-  resolveOpponentTurn();
-  if (handOutcome) {
+  const { message, folded } = resolveOpponentTurn();
+  render();
+  await showBanner(message);
+  if (folded) {
     render();
     return;
   }
   if (isRoundClosed(actionsThisRound, playerContributedThisRound, opponentContributedThisRound)) {
-    advanceRoundOrShowdown();
+    await advanceRoundOrShowdown();
   } else {
     facingBet = true;
   }
   render();
 }
 
-function resolveOpening(action: OpeningAction) {
-  potNotes = [];
+async function resolveOpening(action: OpeningAction) {
+  if (resolving) return;
+  resolving = true;
   const contribution = contributionForOpening(action, revealedCount);
   playerBalance -= contribution;
   pot += contribution;
   playerContributedThisRound += contribution;
   actionsThisRound++;
-  continueRound();
+  render();
+  await continueRound();
+  resolving = false;
+  render();
 }
 
-function resolveFacingBet(action: FacingBetAction) {
-  potNotes = [];
+async function resolveFacingBet(action: FacingBetAction) {
+  if (resolving) return;
+  resolving = true;
   if (action === "fold") {
     handOutcome = { type: "fold", folder: "player" };
     playerBalance += settleFold(pot, "player").playerShare; // always 0, kept for symmetry/clarity
+    resolving = false;
     render();
     return;
   }
@@ -337,12 +363,15 @@ function resolveFacingBet(action: FacingBetAction) {
   pot += contribution;
   playerContributedThisRound += contribution;
   actionsThisRound++;
-  continueRound();
+  render();
+  await continueRound();
+  resolving = false;
+  render();
 }
 
-// Deals a fresh hand under the current dealer button assignment: applies the ante and starts
-// round 0 (which resolves the opponent's opening move first if they hold priority this hand).
-function startHand() {
+// Deals a fresh hand under the current dealer button assignment: applies the ante, announces
+// it, then starts round 0 (which announces the opponent's opening move if they act first).
+async function startHand() {
   opponentFirst = opponentActsFirst(buttonHolder);
   deal = dealScarney(nextDeck());
   revealedCount = 0;
@@ -350,17 +379,26 @@ function startHand() {
   opponentHand = deal.opponentHand;
   discardPiles = Array.from({ length: BOARD_SIZE }, () => []);
   handOutcome = null;
+  facingBet = false;
 
   pot = ANTE * 2;
   playerBalance -= ANTE;
-  potNotes = ["Both players ante $1"];
-  startRound();
+  render();
+  await showBanner("Both players ante $1");
+  await startRound();
 }
 
-function dealNewHand() {
-  buttonHolder = buttonHolder === "player" ? "opponent" : "player";
-  startHand();
+async function beginHand() {
+  resolving = true;
+  await startHand();
+  resolving = false;
   render();
+}
+
+async function dealNewHand() {
+  if (resolving) return;
+  buttonHolder = buttonHolder === "player" ? "opponent" : "player";
+  await beginHand();
 }
 
 const app = document.querySelector<HTMLDivElement>("#app")!;
@@ -376,22 +414,31 @@ app.innerHTML = `
         <div class="stat-value" id="point-total"></div>
       </div>
       <div class="stat">
-        <div class="stat-label">Balance</div>
+        <div class="stat-label">Stack</div>
         <div class="stat-value" id="balance"></div>
       </div>
     </div>
-    <div id="player-dealer-badge" class="dealer-row"></div>
-    <div id="hand" class="hand"></div>
+
+    <div class="hand-wrap">
+      <span id="player-dealer-badge" class="dealer-badge hidden">D</span>
+      <div id="hand" class="hand"></div>
+    </div>
+
     <div class="boards">
       <div id="board-a" class="board-row"></div>
+      <div id="table-center" class="table-center"></div>
       <div id="board-b" class="board-row"></div>
     </div>
-    <div id="opponent-hand" class="hand opponent-hand"></div>
-    <div id="opponent-dealer-badge" class="dealer-row"></div>
-    <div id="results" class="results"></div>
-    <div id="pot-status" class="pot-status"></div>
+
+    <div class="hand-wrap">
+      <span id="opponent-dealer-badge" class="dealer-badge hidden">D</span>
+      <div id="opponent-hand" class="hand opponent-hand"></div>
+    </div>
+
     <div id="controls" class="controls"></div>
   </div>
+
+  <div id="action-banner" class="action-banner"><div id="banner-text" class="banner-text"></div></div>
 `;
 
 document.querySelector<HTMLDivElement>("#controls")!.addEventListener("click", (event) => {
@@ -412,5 +459,4 @@ document.querySelector<HTMLDivElement>("#controls")!.addEventListener("click", (
   }
 });
 
-startHand();
-render();
+beginHand();
