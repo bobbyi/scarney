@@ -67,6 +67,14 @@ body {
   object-fit: contain;
   box-shadow: 0 2px 6px rgba(0, 0, 0, 0.4);
   border-radius: 0.35rem;
+  transition: opacity 200ms ease, filter 200ms ease;
+}
+
+/* Dimmed but still legible - the low hand is every card left in your hand, so cards outside the
+   highlighted high hand need to stay readable, not disappear. */
+.card.dimmed {
+  opacity: 0.55;
+  filter: grayscale(40%);
 }
 
 .card.placeholder {

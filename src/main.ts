@@ -120,23 +120,48 @@ function preloadCardImages() {
   new Image().src = `${import.meta.env.BASE_URL}cards/back.svg`;
 }
 
-function renderCard(card: Card, className = "card", style = ""): string {
+function cardKey(card: Card): string {
+  return `${card.rank}-${card.suit}`;
+}
+
+// At showdown, the specific 5 cards making up the winning high hand (opponent's if they won
+// outright, otherwise the player's - including on a tie, per the simplification of only ever
+// highlighting one side). Null whenever there's nothing to highlight (mid-hand, or a fold).
+function highlightedCardKeys(): Set<string> | null {
+  if (handOutcome?.type !== "showdown") return null;
+  const { high } = handOutcome;
+  const winningCards = high.winner === "opponent" ? high.opponentCards : high.playerCards;
+  return new Set(winningCards.map(cardKey));
+}
+
+function renderCard(card: Card, className = "card", style = "", dim = false): string {
   const styleAttr = style ? ` style="${style}"` : "";
-  return `<img class="${className}" src="${cardImageSrc(card)}" alt="${card.rank} of ${card.suit}"${styleAttr}>`;
+  const cls = dim ? `${className} dimmed` : className;
+  return `<img class="${cls}" src="${cardImageSrc(card)}" alt="${card.rank} of ${card.suit}"${styleAttr}>`;
 }
 
 function renderCardBack(): string {
   return `<img class="card back" src="${import.meta.env.BASE_URL}cards/back.svg" alt="face-down card">`;
 }
 
-function renderBoardSlot(card: Card, index: number, discards: Card[]): string {
+function renderBoardSlot(
+  card: Card,
+  index: number,
+  discards: Card[],
+  dim: (card: Card) => boolean,
+  highlightActive: boolean,
+): string {
   if (index >= revealedCount) {
     return `<div class="board-slot"><div class="card placeholder"></div></div>`;
   }
+  // Discarded cards never contribute to the high hand, so once highlighting is active they're
+  // always dimmed - but not before showdown, when dimming would just look like a stray bug.
   const discardImgs = discards
-    .map((discard, i) => renderCard(discard, "card discard", `top: ${(i + 1) * DISCARD_STACK_OFFSET_PX}px`))
+    .map((discard, i) =>
+      renderCard(discard, "card discard", `top: ${(i + 1) * DISCARD_STACK_OFFSET_PX}px`, highlightActive),
+    )
     .join("");
-  return `<div class="board-slot">${renderCard(card)}${discardImgs}</div>`;
+  return `<div class="board-slot">${renderCard(card, "card", "", dim(card))}${discardImgs}</div>`;
 }
 
 function winnerVerb(winner: Winner): string {
@@ -217,15 +242,23 @@ function render() {
   playerDealerBadgeEl.classList.toggle("hidden", buttonHolder !== "player");
   opponentDealerBadgeEl.classList.toggle("hidden", buttonHolder !== "opponent");
 
-  handEl.innerHTML = hand.map((card) => renderCard(card)).join("");
+  const highlight = highlightedCardKeys();
+  const highlightActive = highlight !== null;
+  const isDimmed = (card: Card) => highlightActive && !highlight!.has(cardKey(card));
+
+  handEl.innerHTML = hand.map((card) => renderCard(card, "card", "", isDimmed(card))).join("");
   opponentHandEl.innerHTML =
     handOutcome?.type === "showdown"
-      ? opponentHand.map((card) => renderCard(card)).join("")
+      ? opponentHand.map((card) => renderCard(card, "card", "", isDimmed(card))).join("")
       : opponentHand.map(() => renderCardBack()).join("");
+  // boardA never feeds the high hand (it only ever triggers discards), so once highlighting is
+  // active every card there is dimmed regardless of rank.
   boardAEl.innerHTML = deal.boardA
-    .map((card, i) => renderBoardSlot(card, i, discardPiles[i]))
+    .map((card, i) => renderBoardSlot(card, i, discardPiles[i], () => highlightActive, highlightActive))
     .join("");
-  boardBEl.innerHTML = deal.boardB.map((card, i) => renderBoardSlot(card, i, [])).join("");
+  boardBEl.innerHTML = deal.boardB
+    .map((card, i) => renderBoardSlot(card, i, [], isDimmed, highlightActive))
+    .join("");
 
   tableCenterEl.innerHTML = renderTableCenter();
   controlsEl.innerHTML = renderControls();

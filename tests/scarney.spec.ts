@@ -258,6 +258,44 @@ test("Showdown reveals the opponent's hand and declares high/low winners", async
   await expect(page.locator("#table-center")).toContainText("You win the low with 6 points");
 });
 
+test("highlights exactly the 5 cards making up the winning high hand and dims everything else", async ({ page }) => {
+  const deck = "AS,AH,AD,AC,2S,6H,7C,8S,9H,10C,6S,7S,8H,9C,10H,3S,3H,4D,4C,5S";
+  await page.goto(`/?deck=${deck}&${FAST_CALLING_STATION}`);
+
+  for (let i = 0; i < 6; i++) {
+    await checkButton(page).click();
+  }
+  await expect(page.locator("#table-center")).toContainText("You win the high with Four of a Kind");
+
+  // the winning hand is the four aces plus the ten of hearts as the best available kicker
+  // (confirmed directly against pokersolver - which exact kicker it is isn't something we control)
+  for (const alt of ["A of spades", "A of hearts", "A of diamonds", "A of clubs", "10 of hearts"]) {
+    await expect(page.locator(`img[alt="${alt}"]`)).not.toHaveClass(/dimmed/);
+  }
+
+  // everything else on the table is dimmed: the player's non-winning card, the rest of boardB,
+  // all of boardA (it never feeds the high hand), and the opponent's entire (losing) hand
+  for (const alt of [
+    "2 of spades",
+    "6 of spades",
+    "7 of spades",
+    "8 of hearts",
+    "9 of clubs",
+    "6 of hearts",
+    "7 of clubs",
+    "8 of spades",
+    "9 of hearts",
+    "10 of clubs",
+    "3 of spades",
+    "3 of hearts",
+    "4 of diamonds",
+    "4 of clubs",
+    "5 of spades",
+  ]) {
+    await expect(page.locator(`img[alt="${alt}"]`)).toHaveClass(/dimmed/);
+  }
+});
+
 test("betting through a hand settles the pot into the winner's balance at showdown", async ({ page }) => {
   const deck = "AS,AH,AD,AC,2S,6H,7C,8S,9H,10C,6S,7S,8H,9C,10H,3S,3H,4D,4C,5S";
   await page.goto(`/?deck=${deck}&${FAST_CALLING_STATION}`);
