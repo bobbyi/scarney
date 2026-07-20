@@ -1,7 +1,14 @@
 import { test, expect, type Page } from "@playwright/test";
 
+// Most tests need deterministic opponent behavior (the production default is now a random
+// strategy), so the calling-station debug override is the default navigation for this suite.
+const CALLING_STATION = "opponent=calling-station";
+
 const checkButton = (page: Page) => page.locator('[data-action="check"]');
 const betButton = (page: Page) => page.locator('[data-action="bet"]');
+const callButton = (page: Page) => page.locator('[data-action="call"]');
+const raiseButton = (page: Page) => page.locator('[data-action="raise"]');
+const foldButton = (page: Page) => page.locator('[data-action="fold"]');
 const nextHandButton = (page: Page) => page.locator('[data-action="next-hand"]');
 
 async function revealedCount(page: Page, boardSelector: string): Promise<number> {
@@ -25,7 +32,7 @@ async function discardRanksInSlot(page: Page, slotIndex: number): Promise<string
 }
 
 test.beforeEach(async ({ page }) => {
-  await page.goto("/");
+  await page.goto(`/?${CALLING_STATION}`);
 });
 
 test("deals a hand of 5 cards and hides both boards on load", async ({ page }) => {
@@ -116,7 +123,7 @@ test("Next Hand deals a new hand, hides both boards again, and keeps the balance
   // player wins both high and low on this deck (see the showdown test below), so an all-checks
   // hand still nets +$2 from the ante pot, giving a deterministic balance to carry into hand 2
   const deck = "AS,AH,AD,AC,2S,6H,7C,8S,9H,10C,6S,7S,8H,9C,10H,3S,3H,4D,4C,5S";
-  await page.goto(`/?deck=${deck}`);
+  await page.goto(`/?deck=${deck}&${CALLING_STATION}`);
 
   for (let i = 0; i < 6; i++) {
     await checkButton(page).click();
@@ -159,7 +166,7 @@ test("hand cards matching each revealed top-board rank are discarded", async ({ 
 
 test("discards both hand cards when two share the revealed rank, via a fixed ?deck= scenario", async ({ page }) => {
   const deck = "KS,KH,2C,3D,4H,KC,5S,6D,7H,8C,9S,10D,JC,QH,AC,2S,2H,2D,3S,3H";
-  await page.goto(`/?deck=${deck}`);
+  await page.goto(`/?deck=${deck}&${CALLING_STATION}`);
 
   await expect(page.locator("#hand .card")).toHaveCount(5);
   expect(await handRanks(page)).toEqual(["K", "K", "2", "3", "4"]);
@@ -179,7 +186,7 @@ test("discards both hand cards when two share the revealed rank, via a fixed ?de
 
 test("hand type and points update as the hand shrinks and the bottom board reveals", async ({ page }) => {
   const deck = "KS,KH,2C,3D,4H,KC,5S,6D,7H,8C,9S,10D,JC,QH,AC,2S,2H,2D,3S,3H";
-  await page.goto(`/?deck=${deck}`);
+  await page.goto(`/?deck=${deck}&${CALLING_STATION}`);
 
   // before any reveal: pool is just the 5-card hand (two kings -> Pair), points = 10+10+2+3+4
   await expect(page.locator("#hand-type")).toHaveText("Pair");
@@ -193,7 +200,7 @@ test("hand type and points update as the hand shrinks and the bottom board revea
 
 test("opponent's matching-rank cards discard and slide left with no gaps, staying face-down", async ({ page }) => {
   const deck = "2S,3D,4H,5C,6S,QS,7D,8H,9C,10S,JS,JH,JD,JC,KS,QH,QD,7S,8S,9S";
-  await page.goto(`/?deck=${deck}`);
+  await page.goto(`/?deck=${deck}&${CALLING_STATION}`);
 
   await expect(page.locator("#opponent-hand .card.back")).toHaveCount(5);
 
@@ -208,7 +215,7 @@ test("opponent's matching-rank cards discard and slide left with no gaps, stayin
 
 test("Showdown reveals the opponent's hand and declares high/low winners", async ({ page }) => {
   const deck = "AS,AH,AD,AC,2S,6H,7C,8S,9H,10C,6S,7S,8H,9C,10H,3S,3H,4D,4C,5S";
-  await page.goto(`/?deck=${deck}`);
+  await page.goto(`/?deck=${deck}&${CALLING_STATION}`);
 
   for (let i = 0; i < 5; i++) {
     await checkButton(page).click();
@@ -231,7 +238,7 @@ test("Showdown reveals the opponent's hand and declares high/low winners", async
 
 test("betting through a hand settles the pot into the winner's balance at showdown", async ({ page }) => {
   const deck = "AS,AH,AD,AC,2S,6H,7C,8S,9H,10C,6S,7S,8H,9C,10H,3S,3H,4D,4C,5S";
-  await page.goto(`/?deck=${deck}`);
+  await page.goto(`/?deck=${deck}&${CALLING_STATION}`);
 
   // player bets the first three ($1) rounds, then checks the last three ($2) rounds
   await betButton(page).click();
@@ -250,4 +257,64 @@ test("betting through a hand settles the pot into the winner's balance at showdo
   // both antes) comes back
   await expect(nextHandButton(page)).toBeVisible();
   await expect(page.locator("#balance")).toHaveText("$104");
+});
+
+test("an opponent's bet presents Call/Raise/Fold, and calling closes the round", async ({ page }) => {
+  await page.goto("/?opponent=aggressor");
+
+  // hand 1: player holds the button, so the opponent (aggressor) acts first and opens with a bet
+  await expect(callButton(page)).toHaveText("Call $1");
+  await expect(raiseButton(page)).toHaveText("Raise $2");
+  await expect(foldButton(page)).toBeVisible();
+  await expect(page.locator("#pot-status")).toHaveText("Pot: $3 — Both players ante $1; Opponent bets $1");
+
+  await callButton(page).click();
+
+  // the round closes and the board reveals; the next round opens the same way
+  expect(await revealedCount(page, "#board-a")).toBe(1);
+  await expect(callButton(page)).toHaveText("Call $1");
+  await expect(page.locator("#pot-status")).toHaveText("Pot: $5 — Opponent bets $1");
+});
+
+test("raising keeps the round open (no reveal) until someone calls", async ({ page }) => {
+  await page.goto("/?opponent=aggressor");
+  await expect(callButton(page)).toHaveText("Call $1");
+
+  await raiseButton(page).click();
+
+  // aggressor raises right back; still round 0, no reveal yet, player faces a bet again
+  expect(await revealedCount(page, "#board-a")).toBe(0);
+  await expect(callButton(page)).toHaveText("Call $1");
+  await expect(page.locator("#pot-status")).toHaveText("Pot: $7 — Opponent raises");
+
+  await callButton(page).click();
+
+  // now it closes, board reveals for round 0, and round 1 opens with a fresh bet
+  expect(await revealedCount(page, "#board-a")).toBe(1);
+  await expect(callButton(page)).toHaveText("Call $1");
+});
+
+test("the opponent folding ends the hand immediately without revealing their cards", async ({ page }) => {
+  await page.goto("/?opponent=folder");
+
+  // folder always checks when opening, so the player faces Check/Bet first
+  await expect(checkButton(page)).toBeVisible();
+  await betButton(page).click();
+
+  await expect(page.locator("#opponent-hand .card.back")).toHaveCount(5);
+  await expect(nextHandButton(page)).toBeVisible();
+  await expect(page.locator("#results")).toContainText("Opponent folds — You win $3");
+  await expect(page.locator("#balance")).toHaveText("$101"); // $99 after ante + the whole $3 pot
+});
+
+test("the player can fold when facing a bet, ending the hand without revealing the opponent's cards", async ({ page }) => {
+  await page.goto("/?opponent=aggressor");
+  await expect(foldButton(page)).toBeVisible();
+
+  await foldButton(page).click();
+
+  await expect(page.locator("#opponent-hand .card.back")).toHaveCount(5);
+  await expect(nextHandButton(page)).toBeVisible();
+  await expect(page.locator("#results")).toContainText("You fold — Opponent wins $3");
+  await expect(page.locator("#balance")).toHaveText("$99"); // just the ante; nothing else was contributed
 });

@@ -12,12 +12,20 @@ import {
 import { classifyHand, handPoints } from "./game/scoring";
 import { determineHighWinner, determineLowWinner, type HighResult, type Winner } from "./game/showdown";
 import {
+  amountOwed,
   ANTE,
+  callingStationStrategy,
+  contributionForOpening,
+  contributionForResponse,
+  isRoundClosed,
   opponentActsFirst,
-  resolveBettingRound,
+  randomOpponentStrategy,
+  settleFold,
   settleShowdown,
   STAKES,
-  type BettingAction,
+  type FacingBetAction,
+  type OpeningAction,
+  type OpponentStrategy,
   type Player,
 } from "./game/betting";
 
@@ -55,18 +63,37 @@ function nextDeck(): Card[] {
   return shuffleDeck(createDeck());
 }
 
+// Debug hook: ?opponent=... forces a deterministic placeholder opponent instead of the random
+// one, so specific betting scenarios (fold, raise) can be reproduced for manual/automated testing.
+function nextStrategy(): OpponentStrategy {
+  const param = new URLSearchParams(window.location.search).get("opponent");
+  if (param === "calling-station") return callingStationStrategy;
+  if (param === "aggressor") return { decideOpening: () => "bet", decideFacingBet: () => "raise" };
+  if (param === "folder") return { decideOpening: () => "check", decideFacingBet: () => "fold" };
+  return randomOpponentStrategy;
+}
+
+type HandOutcome = { type: "showdown"; high: HighResult; low: Winner } | { type: "fold"; folder: Player };
+
+const strategy: OpponentStrategy = nextStrategy();
+
 let deal: ScarneyDeal;
 let revealedCount: number;
 let hand: Card[];
 let opponentHand: Card[];
 let discardPiles: Card[][];
-let showdownRevealed: boolean;
-let showdownResult: { high: HighResult; low: Winner } | null;
+let handOutcome: HandOutcome | null;
 let playerBalance = 100;
 let pot: number;
 let potNotes: string[];
 let buttonHolder: Player = "player";
 let opponentFirst: boolean;
+
+// Per-round betting state.
+let playerContributedThisRound: number;
+let opponentContributedThisRound: number;
+let actionsThisRound: number;
+let facingBet: boolean;
 
 function cardImageSrc(card: Card): string {
   return `/cards/${RANK_FILE_NAMES[card.rank]}_of_${card.suit}.svg`;
@@ -96,30 +123,35 @@ function winnerVerb(winner: Winner): string {
 }
 
 function renderResults(): string {
-  let highLine = "";
-  let lowLine = "";
+  let line1 = "";
+  let line2 = "";
 
-  if (showdownResult) {
-    const { high, low } = showdownResult;
+  if (handOutcome?.type === "showdown") {
+    const { high, low } = handOutcome;
     const playerPoints = handPoints(hand);
     const opponentPoints = handPoints(opponentHand);
 
-    highLine =
+    line1 =
       high.winner === "tie"
         ? `High ties (${high.playerHandName})`
         : `${winnerVerb(high.winner)} the high with ${high.winner === "player" ? high.playerHandName : high.opponentHandName}`;
 
-    lowLine =
+    line2 =
       low === "tie"
         ? `Low ties at ${playerPoints} points`
         : `${winnerVerb(low)} the low with ${low === "player" ? playerPoints : opponentPoints} points`;
+  } else if (handOutcome?.type === "fold") {
+    line1 =
+      handOutcome.folder === "player"
+        ? `You fold — Opponent wins ${formatMoney(pot)}`
+        : `Opponent folds — You win ${formatMoney(pot)}`;
   }
 
   // Always render both lines (even empty) so the results block holds a constant height and
   // showing the showdown text doesn't grow the page and shift the controls below it.
   return `
-    <div class="result-line">${highLine}</div>
-    <div class="result-line">${lowLine}</div>
+    <div class="result-line">${line1}</div>
+    <div class="result-line">${line2}</div>
   `;
 }
 
@@ -128,8 +160,17 @@ function formatMoney(amount: number): string {
 }
 
 function renderControls(): string {
-  if (showdownRevealed) {
+  if (handOutcome) {
     return `<button data-action="next-hand">Next Hand</button>`;
+  }
+  if (facingBet) {
+    const owed = amountOwed(playerContributedThisRound, opponentContributedThisRound);
+    const raiseCost = contributionForResponse("raise", owed, revealedCount);
+    return `
+      <button data-action="call">Call ${formatMoney(owed)}</button>
+      <button data-action="raise">Raise ${formatMoney(raiseCost)}</button>
+      <button data-action="fold">Fold</button>
+    `;
   }
   const stake = STAKES[revealedCount];
   return `
@@ -139,7 +180,7 @@ function renderControls(): string {
 }
 
 function renderPotStatus(): string {
-  if (showdownRevealed) return "";
+  if (handOutcome) return "";
   const notes = potNotes.length ? ` — ${potNotes.join("; ")}` : "";
   return `Pot: ${formatMoney(pot)}${notes}`;
 }
@@ -166,9 +207,10 @@ function render() {
   opponentDealerBadgeEl.innerHTML = renderDealerBadge("opponent");
 
   handEl.innerHTML = hand.map((card) => renderCard(card)).join("");
-  opponentHandEl.innerHTML = showdownRevealed
-    ? opponentHand.map((card) => renderCard(card)).join("")
-    : opponentHand.map(() => renderCardBack()).join("");
+  opponentHandEl.innerHTML =
+    handOutcome?.type === "showdown"
+      ? opponentHand.map((card) => renderCard(card)).join("")
+      : opponentHand.map(() => renderCardBack()).join("");
   boardAEl.innerHTML = deal.boardA
     .map((card, i) => renderBoardSlot(card, i, discardPiles[i]))
     .join("");
@@ -184,42 +226,51 @@ function render() {
   resultsEl.innerHTML = renderResults();
 }
 
-// Deals a fresh hand under the current dealer button assignment: applies the ante and, if
-// the opponent acts first this hand, their forced opening check (they never open with a bet).
-function startHand() {
-  opponentFirst = opponentActsFirst(buttonHolder);
-  deal = dealScarney(nextDeck());
-  revealedCount = 0;
-  hand = deal.hand;
-  opponentHand = deal.opponentHand;
-  discardPiles = Array.from({ length: BOARD_SIZE }, () => []);
-  showdownRevealed = false;
-  showdownResult = null;
-
-  pot = ANTE * 2;
-  playerBalance -= ANTE;
-  potNotes = ["Both players ante $1"];
-  if (opponentFirst) potNotes.push("Opponent checks");
-}
-
-function dealNewHand() {
-  buttonHolder = buttonHolder === "player" ? "opponent" : "player";
-  startHand();
-  render();
-}
-
-function resolveRound(action: BettingAction) {
-  const { potContribution, opponentAction } = resolveBettingRound(action, revealedCount);
-  playerBalance -= potContribution;
-  pot += potContribution * 2;
-
-  potNotes = [];
-  // If the opponent already checked to open this round, only a bet requires a further response
-  // from them (a call); a matching check needs no additional note, it just closes the round.
-  if (!opponentFirst || action === "bet") {
-    potNotes.push(opponentAction === "check" ? "Opponent checks" : "Opponent calls");
+// Resolves the opponent's single turn: responds to a live bet (call/raise/fold) if one is
+// owed, otherwise makes their own opening decision (check/bet). Never called more than once
+// per player click, since with two players every action is answered by exactly one response.
+function resolveOpponentTurn() {
+  const owed = amountOwed(opponentContributedThisRound, playerContributedThisRound);
+  actionsThisRound++;
+  if (owed > 0) {
+    const decision = strategy.decideFacingBet();
+    if (decision === "fold") {
+      handOutcome = { type: "fold", folder: "opponent" };
+      playerBalance += settleFold(pot, "opponent").playerShare;
+      potNotes.push("Opponent folds");
+      return;
+    }
+    const contribution = contributionForResponse(decision, owed, revealedCount);
+    opponentContributedThisRound += contribution;
+    pot += contribution;
+    potNotes.push(decision === "call" ? "Opponent calls" : "Opponent raises");
+  } else {
+    const decision = strategy.decideOpening();
+    if (decision === "bet") {
+      const contribution = contributionForOpening("bet", revealedCount);
+      opponentContributedThisRound += contribution;
+      pot += contribution;
+      potNotes.push(`Opponent bets ${formatMoney(contribution)}`);
+    } else {
+      potNotes.push("Opponent checks");
+    }
   }
+}
 
+// Resets a round's betting state and, if the opponent holds priority this hand, immediately
+// resolves their opening move (check or bet) before the player's controls are shown.
+function startRound() {
+  playerContributedThisRound = 0;
+  opponentContributedThisRound = 0;
+  actionsThisRound = 0;
+  facingBet = false;
+  if (opponentFirst) {
+    resolveOpponentTurn();
+    facingBet = opponentContributedThisRound > playerContributedThisRound;
+  }
+}
+
+function advanceRoundOrShowdown() {
   if (revealedCount < BOARD_SIZE) {
     const slotIndex = revealedCount;
     const revealedTopCard = deal.boardA[slotIndex];
@@ -229,15 +280,86 @@ function resolveRound(action: BettingAction) {
     opponentHand = opponentPartition.remaining;
     discardPiles[slotIndex] = [...playerPartition.matching, ...opponentPartition.matching];
     revealedCount++;
-    if (opponentFirst) potNotes.push("Opponent checks");
+    startRound();
   } else {
-    showdownRevealed = true;
     const revealedBottomCards = deal.boardB;
     const high = determineHighWinner([...hand, ...revealedBottomCards], [...opponentHand, ...revealedBottomCards]);
     const low = determineLowWinner(handPoints(hand), handPoints(opponentHand));
-    showdownResult = { high, low };
+    handOutcome = { type: "showdown", high, low };
     playerBalance += settleShowdown(pot, high.winner, low).playerShare;
   }
+}
+
+// Called after the player's own action settles their side of this exchange: closes the round
+// immediately if the player's action already matched the opponent, otherwise lets the opponent
+// respond once and re-checks — closing, ending the hand (a fold), or handing it back to the
+// player if the opponent raised.
+function continueRound() {
+  if (isRoundClosed(actionsThisRound, playerContributedThisRound, opponentContributedThisRound)) {
+    advanceRoundOrShowdown();
+    render();
+    return;
+  }
+  resolveOpponentTurn();
+  if (handOutcome) {
+    render();
+    return;
+  }
+  if (isRoundClosed(actionsThisRound, playerContributedThisRound, opponentContributedThisRound)) {
+    advanceRoundOrShowdown();
+  } else {
+    facingBet = true;
+  }
+  render();
+}
+
+function resolveOpening(action: OpeningAction) {
+  potNotes = [];
+  const contribution = contributionForOpening(action, revealedCount);
+  playerBalance -= contribution;
+  pot += contribution;
+  playerContributedThisRound += contribution;
+  actionsThisRound++;
+  continueRound();
+}
+
+function resolveFacingBet(action: FacingBetAction) {
+  potNotes = [];
+  if (action === "fold") {
+    handOutcome = { type: "fold", folder: "player" };
+    playerBalance += settleFold(pot, "player").playerShare; // always 0, kept for symmetry/clarity
+    render();
+    return;
+  }
+  const owed = amountOwed(playerContributedThisRound, opponentContributedThisRound);
+  const contribution = contributionForResponse(action, owed, revealedCount);
+  playerBalance -= contribution;
+  pot += contribution;
+  playerContributedThisRound += contribution;
+  actionsThisRound++;
+  continueRound();
+}
+
+// Deals a fresh hand under the current dealer button assignment: applies the ante and starts
+// round 0 (which resolves the opponent's opening move first if they hold priority this hand).
+function startHand() {
+  opponentFirst = opponentActsFirst(buttonHolder);
+  deal = dealScarney(nextDeck());
+  revealedCount = 0;
+  hand = deal.hand;
+  opponentHand = deal.opponentHand;
+  discardPiles = Array.from({ length: BOARD_SIZE }, () => []);
+  handOutcome = null;
+
+  pot = ANTE * 2;
+  playerBalance -= ANTE;
+  potNotes = ["Both players ante $1"];
+  startRound();
+}
+
+function dealNewHand() {
+  buttonHolder = buttonHolder === "player" ? "opponent" : "player";
+  startHand();
   render();
 }
 
@@ -274,10 +396,19 @@ app.innerHTML = `
 
 document.querySelector<HTMLDivElement>("#controls")!.addEventListener("click", (event) => {
   const action = (event.target as HTMLElement).dataset.action;
-  if (action === "check" || action === "bet") {
-    resolveRound(action);
-  } else if (action === "next-hand") {
-    dealNewHand();
+  switch (action) {
+    case "check":
+    case "bet":
+      resolveOpening(action);
+      break;
+    case "call":
+    case "raise":
+    case "fold":
+      resolveFacingBet(action);
+      break;
+    case "next-hand":
+      dealNewHand();
+      break;
   }
 });
 
