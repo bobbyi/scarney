@@ -93,6 +93,26 @@ body {
   text-align: center;
 }
 
+.dealer-row {
+  display: flex;
+  justify-content: center;
+  min-height: 1.75rem;
+}
+
+.dealer-badge {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.75rem;
+  height: 1.75rem;
+  border-radius: 50%;
+  background: white;
+  color: #1a1a1a;
+  font-weight: 700;
+  font-size: 0.85rem;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.4);
+}
+
 .boards {
   display: flex;
   flex-direction: column;

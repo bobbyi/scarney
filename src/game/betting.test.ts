@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { dealScarney, parseDeck } from "./deck";
 import { handPoints } from "./scoring";
 import { determineHighWinner, determineLowWinner } from "./showdown";
-import { resolveBettingRound, settleShowdown, STAKES } from "./betting";
+import { ANTE, opponentActsFirst, resolveBettingRound, settleShowdown, STAKES } from "./betting";
 
 describe("resolveBettingRound", () => {
   it("charges nothing and has the opponent check back when the player checks", () => {
@@ -19,6 +19,16 @@ describe("resolveBettingRound", () => {
 
   it("stakes are $1 for the first three rounds and $2 for the last three", () => {
     expect(STAKES).toEqual([1, 1, 1, 2, 2, 2]);
+  });
+});
+
+describe("opponentActsFirst", () => {
+  it("is true when the player holds the dealer button", () => {
+    expect(opponentActsFirst("player")).toBe(true);
+  });
+
+  it("is false when the opponent holds the dealer button", () => {
+    expect(opponentActsFirst("opponent")).toBe(false);
   });
 });
 
@@ -50,7 +60,8 @@ describe("betting composed with a full deal and showdown", () => {
 
     const actions = ["bet", "bet", "bet", "check", "check", "check"] as const;
     let playerBalance = 100;
-    let pot = 0;
+    let pot = ANTE * 2;
+    playerBalance -= ANTE;
 
     for (const [round, action] of actions.entries()) {
       const { potContribution, opponentAction } = resolveBettingRound(action, round);
@@ -68,7 +79,7 @@ describe("betting composed with a full deal and showdown", () => {
     const { playerShare } = settleShowdown(pot, high.winner, low);
     playerBalance += playerShare;
 
-    expect(pot).toBe(6);
-    expect(playerBalance).toBe(103);
+    expect(pot).toBe(8);
+    expect(playerBalance).toBe(104);
   });
 });

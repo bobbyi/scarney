@@ -1,9 +1,16 @@
 import type { Winner } from "./showdown";
 
 export const STAKES: readonly number[] = [1, 1, 1, 2, 2, 2];
+export const ANTE = 1;
 
+export type Player = "player" | "opponent";
 export type BettingAction = "check" | "bet";
 export type OpponentAction = "check" | "call";
+
+// The player without the dealer button acts first each round.
+export function opponentActsFirst(buttonHolder: Player): boolean {
+  return buttonHolder === "player";
+}
 
 export interface BettingRoundResult {
   potContribution: number;

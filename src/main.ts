@@ -11,7 +11,15 @@ import {
 } from "./game/deck";
 import { classifyHand, handPoints } from "./game/scoring";
 import { determineHighWinner, determineLowWinner, type HighResult, type Winner } from "./game/showdown";
-import { resolveBettingRound, settleShowdown, STAKES, type BettingAction, type OpponentAction } from "./game/betting";
+import {
+  ANTE,
+  opponentActsFirst,
+  resolveBettingRound,
+  settleShowdown,
+  STAKES,
+  type BettingAction,
+  type Player,
+} from "./game/betting";
 
 const RANK_FILE_NAMES: Record<Rank, string> = {
   "2": "2",
@@ -47,16 +55,18 @@ function nextDeck(): Card[] {
   return shuffleDeck(createDeck());
 }
 
-let deal: ScarneyDeal = dealScarney(nextDeck());
-let revealedCount = 0;
-let hand: Card[] = deal.hand;
-let opponentHand: Card[] = deal.opponentHand;
-let discardPiles: Card[][] = Array.from({ length: BOARD_SIZE }, () => []);
-let showdownRevealed = false;
+let deal: ScarneyDeal;
+let revealedCount: number;
+let hand: Card[];
+let opponentHand: Card[];
+let discardPiles: Card[][];
+let showdownRevealed: boolean;
+let showdownResult: { high: HighResult; low: Winner } | null;
 let playerBalance = 100;
-let pot = 0;
-let lastOpponentAction: OpponentAction | null = null;
-let showdownResult: { high: HighResult; low: Winner } | null = null;
+let pot: number;
+let potNotes: string[];
+let buttonHolder: Player = "player";
+let opponentFirst: boolean;
 
 function cardImageSrc(card: Card): string {
   return `/cards/${RANK_FILE_NAMES[card.rank]}_of_${card.suit}.svg`;
@@ -130,9 +140,12 @@ function renderControls(): string {
 
 function renderPotStatus(): string {
   if (showdownRevealed) return "";
-  const opponentLine =
-    lastOpponentAction === "check" ? " — Opponent checks" : lastOpponentAction === "call" ? " — Opponent calls" : "";
-  return `Pot: ${formatMoney(pot)}${opponentLine}`;
+  const notes = potNotes.length ? ` — ${potNotes.join("; ")}` : "";
+  return `Pot: ${formatMoney(pot)}${notes}`;
+}
+
+function renderDealerBadge(holder: Player): string {
+  return buttonHolder === holder ? `<span class="dealer-badge">D</span>` : "";
 }
 
 function render() {
@@ -146,6 +159,11 @@ function render() {
   const pointTotalEl = document.querySelector<HTMLDivElement>("#point-total")!;
   const balanceEl = document.querySelector<HTMLDivElement>("#balance")!;
   const resultsEl = document.querySelector<HTMLDivElement>("#results")!;
+  const playerDealerBadgeEl = document.querySelector<HTMLDivElement>("#player-dealer-badge")!;
+  const opponentDealerBadgeEl = document.querySelector<HTMLDivElement>("#opponent-dealer-badge")!;
+
+  playerDealerBadgeEl.innerHTML = renderDealerBadge("player");
+  opponentDealerBadgeEl.innerHTML = renderDealerBadge("opponent");
 
   handEl.innerHTML = hand.map((card) => renderCard(card)).join("");
   opponentHandEl.innerHTML = showdownRevealed
@@ -166,16 +184,27 @@ function render() {
   resultsEl.innerHTML = renderResults();
 }
 
-function dealNewHand() {
+// Deals a fresh hand under the current dealer button assignment: applies the ante and, if
+// the opponent acts first this hand, their forced opening check (they never open with a bet).
+function startHand() {
+  opponentFirst = opponentActsFirst(buttonHolder);
   deal = dealScarney(nextDeck());
   revealedCount = 0;
   hand = deal.hand;
   opponentHand = deal.opponentHand;
   discardPiles = Array.from({ length: BOARD_SIZE }, () => []);
   showdownRevealed = false;
-  pot = 0;
-  lastOpponentAction = null;
   showdownResult = null;
+
+  pot = ANTE * 2;
+  playerBalance -= ANTE;
+  potNotes = ["Both players ante $1"];
+  if (opponentFirst) potNotes.push("Opponent checks");
+}
+
+function dealNewHand() {
+  buttonHolder = buttonHolder === "player" ? "opponent" : "player";
+  startHand();
   render();
 }
 
@@ -183,7 +212,13 @@ function resolveRound(action: BettingAction) {
   const { potContribution, opponentAction } = resolveBettingRound(action, revealedCount);
   playerBalance -= potContribution;
   pot += potContribution * 2;
-  lastOpponentAction = opponentAction;
+
+  potNotes = [];
+  // If the opponent already checked to open this round, only a bet requires a further response
+  // from them (a call); a matching check needs no additional note, it just closes the round.
+  if (!opponentFirst || action === "bet") {
+    potNotes.push(opponentAction === "check" ? "Opponent checks" : "Opponent calls");
+  }
 
   if (revealedCount < BOARD_SIZE) {
     const slotIndex = revealedCount;
@@ -194,6 +229,7 @@ function resolveRound(action: BettingAction) {
     opponentHand = opponentPartition.remaining;
     discardPiles[slotIndex] = [...playerPartition.matching, ...opponentPartition.matching];
     revealedCount++;
+    if (opponentFirst) potNotes.push("Opponent checks");
   } else {
     showdownRevealed = true;
     const revealedBottomCards = deal.boardB;
@@ -222,12 +258,14 @@ app.innerHTML = `
         <div class="stat-value" id="balance"></div>
       </div>
     </div>
+    <div id="player-dealer-badge" class="dealer-row"></div>
     <div id="hand" class="hand"></div>
     <div class="boards">
       <div id="board-a" class="board-row"></div>
       <div id="board-b" class="board-row"></div>
     </div>
     <div id="opponent-hand" class="hand opponent-hand"></div>
+    <div id="opponent-dealer-badge" class="dealer-row"></div>
     <div id="results" class="results"></div>
     <div id="pot-status" class="pot-status"></div>
     <div id="controls" class="controls"></div>
@@ -243,4 +281,5 @@ document.querySelector<HTMLDivElement>("#controls")!.addEventListener("click", (
   }
 });
 
+startHand();
 render();

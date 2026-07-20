@@ -45,9 +45,11 @@ test("opponent is dealt 5 face-down cards on load", async ({ page }) => {
   await expect(page.locator("#opponent-hand .card.back")).toHaveCount(5);
 });
 
-test("starts with a $100 balance and an empty pot", async ({ page }) => {
-  await expect(page.locator("#balance")).toHaveText("$100");
-  await expect(page.locator("#pot-status")).toHaveText("Pot: $0");
+test("antes $1 from each player and, since the player holds the button first, shows the opponent's forced check", async ({ page }) => {
+  await expect(page.locator("#balance")).toHaveText("$99");
+  await expect(page.locator("#pot-status")).toHaveText("Pot: $2 — Both players ante $1; Opponent checks");
+  await expect(page.locator("#player-dealer-badge .dealer-badge")).toHaveCount(1);
+  await expect(page.locator("#opponent-dealer-badge .dealer-badge")).toHaveCount(0);
 });
 
 test("Check reveals one card on each board per click and leaves balance/pot unchanged", async ({ page }) => {
@@ -57,8 +59,10 @@ test("Check reveals one card on each board per click and leaves balance/pot unch
   expect(await revealedCount(page, "#board-b")).toBe(1);
   expect(await placeholderCount(page, "#board-a")).toBe(4);
   expect(await placeholderCount(page, "#board-b")).toBe(4);
-  await expect(page.locator("#balance")).toHaveText("$100");
-  await expect(page.locator("#pot-status")).toHaveText("Pot: $0 — Opponent checks");
+  await expect(page.locator("#balance")).toHaveText("$99");
+  // the opponent's forced opening check from round 0 already showed; matching it with a check of
+  // our own needs no further note, so this now shows just the *next* round's forced opening check
+  await expect(page.locator("#pot-status")).toHaveText("Pot: $2 — Opponent checks");
 
   await checkButton(page).click();
 
@@ -66,12 +70,27 @@ test("Check reveals one card on each board per click and leaves balance/pot unch
   expect(await revealedCount(page, "#board-b")).toBe(2);
 });
 
-test("Bet increases the pot, decreases the balance, and the opponent auto-calls", async ({ page }) => {
+test("Bet increases the pot, decreases the balance, and shows both the opponent's call and their next check", async ({ page }) => {
   await betButton(page).click();
 
-  await expect(page.locator("#balance")).toHaveText("$99");
-  await expect(page.locator("#pot-status")).toHaveText("Pot: $2 — Opponent calls");
+  await expect(page.locator("#balance")).toHaveText("$98");
+  // both events since our last click land in one status line: closing this round (call), then
+  // opening the next one (check) — this is the fix for the "opponent takes two actions" bug
+  await expect(page.locator("#pot-status")).toHaveText("Pot: $4 — Opponent calls; Opponent checks");
   expect(await revealedCount(page, "#board-a")).toBe(1);
+});
+
+test("shows the dealer badge next to the player first, then swaps to the opponent the next hand", async ({ page }) => {
+  await expect(page.locator("#player-dealer-badge .dealer-badge")).toHaveCount(1);
+  await expect(page.locator("#opponent-dealer-badge .dealer-badge")).toHaveCount(0);
+
+  for (let i = 0; i < 6; i++) {
+    await checkButton(page).click();
+  }
+  await nextHandButton(page).click();
+
+  await expect(page.locator("#player-dealer-badge .dealer-badge")).toHaveCount(0);
+  await expect(page.locator("#opponent-dealer-badge .dealer-badge")).toHaveCount(1);
 });
 
 test("checking through all 6 rounds fully reveals both boards, then shows the showdown and a Next Hand button", async ({ page }) => {
@@ -94,11 +113,16 @@ test("checking through all 6 rounds fully reveals both boards, then shows the sh
 });
 
 test("Next Hand deals a new hand, hides both boards again, and keeps the balance", async ({ page }) => {
+  // player wins both high and low on this deck (see the showdown test below), so an all-checks
+  // hand still nets +$2 from the ante pot, giving a deterministic balance to carry into hand 2
+  const deck = "AS,AH,AD,AC,2S,6H,7C,8S,9H,10C,6S,7S,8H,9C,10H,3S,3H,4D,4C,5S";
+  await page.goto(`/?deck=${deck}`);
+
   for (let i = 0; i < 6; i++) {
     await checkButton(page).click();
   }
   await expect(nextHandButton(page)).toBeVisible();
-  await expect(page.locator("#balance")).toHaveText("$100");
+  await expect(page.locator("#balance")).toHaveText("$101");
 
   await nextHandButton(page).click();
 
@@ -108,8 +132,10 @@ test("Next Hand deals a new hand, hides both boards again, and keeps the balance
   expect(await placeholderCount(page, "#board-b")).toBe(5);
   await expect(checkButton(page)).toBeVisible();
   await expect(betButton(page)).toBeVisible();
+  // hand 2: balance carries over ($101), then that hand's own ante is deducted ($100)
   await expect(page.locator("#balance")).toHaveText("$100");
-  await expect(page.locator("#pot-status")).toHaveText("Pot: $0");
+  // hand 2's button goes to the opponent, so the player acts first with no forced opponent check
+  await expect(page.locator("#pot-status")).toHaveText("Pot: $2 — Both players ante $1");
 });
 
 test("hand cards matching each revealed top-board rank are discarded", async ({ page }) => {
@@ -209,18 +235,19 @@ test("betting through a hand settles the pot into the winner's balance at showdo
 
   // player bets the first three ($1) rounds, then checks the last three ($2) rounds
   await betButton(page).click();
-  await expect(page.locator("#balance")).toHaveText("$99");
-  await betButton(page).click();
   await expect(page.locator("#balance")).toHaveText("$98");
   await betButton(page).click();
   await expect(page.locator("#balance")).toHaveText("$97");
-  await expect(page.locator("#pot-status")).toHaveText("Pot: $6 — Opponent calls");
+  await betButton(page).click();
+  await expect(page.locator("#balance")).toHaveText("$96");
+  await expect(page.locator("#pot-status")).toHaveText("Pot: $8 — Opponent calls; Opponent checks");
 
   await checkButton(page).click();
   await checkButton(page).click();
   await checkButton(page).click();
 
-  // player wins both high and low (see the showdown test above), so the full $6 pot comes back
+  // player wins both high and low (see the showdown test above), so the full $8 pot (including
+  // both antes) comes back
   await expect(nextHandButton(page)).toBeVisible();
-  await expect(page.locator("#balance")).toHaveText("$103");
+  await expect(page.locator("#balance")).toHaveText("$104");
 });
