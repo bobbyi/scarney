@@ -205,23 +205,31 @@ function renderTableCenter(): string {
 }
 
 function renderControls(): string {
-  const disabledAttr = resolving ? " disabled" : "";
   if (handOutcome) {
-    return `<button data-action="next-hand"${disabledAttr}>Next Hand</button>`;
+    return `<button data-action="next-hand"${resolving ? " disabled" : ""}>Next Hand</button>`;
+  }
+  if (resolving) {
+    // While an action is resolving, the player's own contribution has already been applied (so
+    // the Stack/Pot numbers can update immediately), which makes a live-recomputed Call/Raise
+    // amount read as stale (e.g. "Call ($0)") relative to the decision that was just made. Show
+    // plain disabled labels instead until the round's state has fully settled for next time.
+    return facingBet
+      ? `<button disabled>Call</button><button disabled>Raise</button><button disabled>Fold</button>`
+      : `<button disabled>Check</button><button disabled>Bet</button>`;
   }
   if (facingBet) {
     const owed = amountOwed(playerContributedThisRound, opponentContributedThisRound);
     const raiseCost = contributionForResponse("raise", owed, revealedCount);
     return `
-      <button data-action="call"${disabledAttr}>Call (${formatMoney(owed)})</button>
-      <button data-action="raise"${disabledAttr}>Raise (${formatMoney(raiseCost)})</button>
-      <button data-action="fold"${disabledAttr}>Fold</button>
+      <button data-action="call">Call (${formatMoney(owed)})</button>
+      <button data-action="raise">Raise (${formatMoney(raiseCost)})</button>
+      <button data-action="fold">Fold</button>
     `;
   }
   const stake = STAKES[revealedCount];
   return `
-    <button data-action="check"${disabledAttr}>Check</button>
-    <button data-action="bet"${disabledAttr}>Bet (${formatMoney(stake)})</button>
+    <button data-action="check">Check</button>
+    <button data-action="bet">Bet (${formatMoney(stake)})</button>
   `;
 }
 
