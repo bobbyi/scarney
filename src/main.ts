@@ -669,6 +669,10 @@ async function continueRound() {
     render();
     return;
   }
+  // Give the player's own just-rendered action (their bet-stack chip, the disabled buttons) a
+  // beat before the opponent's response lands - otherwise both changes land in the same paint
+  // and read as simultaneous (same concern as startRound's opponent-acts-first case above).
+  await delay(REVEAL_PAUSE_MS);
   const { message, folded } = resolveOpponentTurn();
   render();
   await showBanner(message);
