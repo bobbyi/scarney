@@ -30,6 +30,7 @@ import {
   type OpponentStrategy,
   type Player,
 } from "./game/betting";
+import { createSmartOpponentStrategy, type DecisionContext } from "./game/opponent";
 
 const RANK_FILE_NAMES: Record<Rank, string> = {
   "2": "2",
@@ -74,14 +75,31 @@ function nextDeck(): Card[] {
   return shuffleDeck(createDeck());
 }
 
-// Debug hook: ?opponent=... forces a deterministic placeholder opponent instead of the random
+// Assembles what the smart opponent strategy needs to know right now, from the live game state -
+// called fresh at each decision point since the underlying equity changes every reveal/discard.
+function buildDecisionContext(): DecisionContext {
+  return {
+    opponentHand,
+    knownCards: [...deal.opponentHand, ...deal.boardA.slice(0, revealedCount), ...discardPiles.flat()],
+    playerHandCount: hand.length,
+    revealedBoardB: deal.boardB.slice(0, revealedCount),
+    remainingReveals: BOARD_SIZE - revealedCount,
+    round: revealedCount,
+    pot,
+    owed: amountOwed(opponentContributedThisRound, playerContributedThisRound),
+    raisesThisRound,
+  };
+}
+
+// Debug hook: ?opponent=... forces a deterministic placeholder opponent instead of the smart
 // one, so specific betting scenarios (fold, raise) can be reproduced for manual/automated testing.
 function nextStrategy(): OpponentStrategy {
   const param = new URLSearchParams(window.location.search).get("opponent");
   if (param === "calling-station") return callingStationStrategy;
   if (param === "aggressor") return { decideOpening: () => "bet", decideFacingBet: () => "raise" };
   if (param === "folder") return { decideOpening: () => "check", decideFacingBet: () => "fold" };
-  return randomOpponentStrategy;
+  if (param === "random") return randomOpponentStrategy;
+  return createSmartOpponentStrategy(buildDecisionContext);
 }
 
 type HandOutcome = { type: "showdown"; high: HighResult; low: Winner } | { type: "fold"; folder: Player };
@@ -106,6 +124,7 @@ let bannerMessage: string | null = null;
 let playerContributedThisRound: number;
 let opponentContributedThisRound: number;
 let actionsThisRound: number;
+let raisesThisRound: number;
 let facingBet = false;
 
 function cardImageSrc(card: Card): string {
@@ -371,6 +390,7 @@ function resolveOpponentTurn(): OpponentTurnResult {
     const contribution = contributionForResponse(decision, owed, revealedCount);
     opponentContributedThisRound += contribution;
     pot += contribution;
+    if (decision === "raise") raisesThisRound++;
     return { message: decision === "call" ? "Opponent calls" : "Opponent raises", folded: false };
   }
   const decision = strategy.decideOpening();
@@ -389,6 +409,7 @@ async function startRound() {
   playerContributedThisRound = 0;
   opponentContributedThisRound = 0;
   actionsThisRound = 0;
+  raisesThisRound = 0;
   facingBet = false;
   if (opponentFirst) {
     // Give the just-dealt/discarded cards a beat on screen before announcing what the opponent
@@ -614,6 +635,7 @@ async function resolveFacingBet(action: FacingBetAction) {
   pot += contribution;
   playerContributedThisRound += contribution;
   actionsThisRound++;
+  if (action === "raise") raisesThisRound++;
   render();
   await continueRound();
   resolving = false;
