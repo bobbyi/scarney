@@ -57,6 +57,7 @@ const BANNER_TRANSITION_MS = FAST ? 5 : 220;
 const REVEAL_PAUSE_MS = FAST ? 5 : 400;
 const DISCARD_FLY_MS = FAST ? 5 : 380;
 const DISCARD_FLIP_MS = FAST ? 5 : 260;
+const CHIP_FLY_MS = FAST ? 5 : 380;
 
 // Debug hook: ?deck=KS,KH,2C,... in the URL fixes the deck for reproducing a specific scenario.
 function nextDeck(): Card[] {
@@ -187,7 +188,7 @@ function formatMoney(amount: number): string {
 // the chip art just stops piling on more.
 const MAX_VISUAL_POT = 100;
 const CHIPS_PER_TOWER = 5;
-const CHIP_STACK_OFFSET_PX = 6;
+const CHIP_STACK_OFFSET_PX = 5;
 
 function renderChipTowers(count: number, colorClass: string): string {
   const towers: string[] = [];
@@ -202,16 +203,20 @@ function renderChipTowers(count: number, colorClass: string): string {
   return towers.join("");
 }
 
-// $1 chips are white, $5 chips are red - (pot mod 5) whites and (pot div 5) reds. Rendered into
-// its own fixed-position element (not part of #table-center) so a growing/shrinking stack never
-// shifts the pot amount's position - only ever grows away from it.
-function renderChipStack(): string {
-  if (handOutcome) return "";
-  const visualPot = Math.min(Math.floor(pot), MAX_VISUAL_POT);
-  const reds = Math.floor(visualPot / 5);
-  const whites = visualPot % 5;
+// $1 chips are white, $5 chips are red - (amount mod 5) whites and (amount div 5) reds.
+function renderChipStack(amount: number): string {
+  const visual = Math.min(Math.floor(amount), MAX_VISUAL_POT);
+  const reds = Math.floor(visual / 5);
+  const whites = visual % 5;
   if (reds === 0 && whites === 0) return "";
   return `${renderChipTowers(reds, "red")}${renderChipTowers(whites, "white")}`;
+}
+
+// The pot display (text + chip stack) only reflects rounds that have already closed - the
+// current round's live bets sit visually in front of each hand (their own chip stacks) until
+// the round settles and slides them in, at which point this catches up to include them.
+function displayedPot(): number {
+  return pot - playerContributedThisRound - opponentContributedThisRound;
 }
 
 function renderTableCenter(): string {
@@ -241,7 +246,7 @@ function renderTableCenter(): string {
     return `<div class="pot-plaque"><div class="center-line">${line}</div></div>`;
   }
 
-  return `<div class="pot-amount-plain">${formatMoney(pot)}</div>`;
+  return `<div class="pot-amount-plain">${formatMoney(displayedPot())}</div>`;
 }
 
 // Renders the live Check/Bet or Call/Raise/Fold set from current state (amounts included).
@@ -284,6 +289,8 @@ function render() {
   const boardBEl = document.querySelector<HTMLDivElement>("#board-b")!;
   const tableCenterEl = document.querySelector<HTMLDivElement>("#table-center")!;
   const chipStackEl = document.querySelector<HTMLDivElement>("#chip-stack")!;
+  const playerBetStackEl = document.querySelector<HTMLDivElement>("#player-bet-stack")!;
+  const opponentBetStackEl = document.querySelector<HTMLDivElement>("#opponent-bet-stack")!;
   const controlsEl = document.querySelector<HTMLDivElement>("#controls")!;
   const handTypeEl = document.querySelector<HTMLDivElement>("#hand-type")!;
   const pointTotalEl = document.querySelector<HTMLDivElement>("#point-total")!;
@@ -314,7 +321,9 @@ function render() {
     .join("");
 
   tableCenterEl.innerHTML = renderTableCenter();
-  chipStackEl.innerHTML = renderChipStack();
+  chipStackEl.innerHTML = handOutcome ? "" : renderChipStack(displayedPot());
+  playerBetStackEl.innerHTML = handOutcome ? "" : renderChipStack(playerContributedThisRound);
+  opponentBetStackEl.innerHTML = handOutcome ? "" : renderChipStack(opponentContributedThisRound);
   controlsEl.innerHTML = renderControls();
 
   const revealedBottomCards = deal.boardB.slice(0, revealedCount);
@@ -463,6 +472,59 @@ async function animateDiscards(pending: PendingDiscard[]) {
   );
 }
 
+// Flies each side's live bet-stack (whatever's in front of their hand this round) into the pot
+// as a single clone-and-remove ghost per stack (chips are interchangeable, so unlike discarded
+// cards there's no need to track individual chip identity - the whole stack just moves as one).
+// pot itself already includes this round's contributions (updated as each action happens), so
+// there's nothing to settle numerically here - only the bet stacks (in front of each hand) and
+// the live pot display (which subtracts them back out) need to visually catch up.
+async function settleBetsIntoPot() {
+  const sources = [
+    { el: document.querySelector<HTMLDivElement>("#player-bet-stack")!, amount: playerContributedThisRound },
+    { el: document.querySelector<HTMLDivElement>("#opponent-bet-stack")!, amount: opponentContributedThisRound },
+  ].filter(({ amount }) => amount > 0);
+
+  if (sources.length === 0) return;
+
+  // Snapshot the current (pre-settle) bet-stacks as detached ghost clones before anything moves.
+  const ghosts = sources.map(({ el }) => {
+    const rect = el.getBoundingClientRect();
+    const ghost = el.cloneNode(true) as HTMLDivElement;
+    ghost.removeAttribute("id");
+    ghost.style.position = "fixed";
+    ghost.style.left = `${rect.left}px`;
+    ghost.style.top = `${rect.top}px`;
+    ghost.style.margin = "0";
+    ghost.style.pointerEvents = "none";
+    ghost.style.zIndex = "15";
+    document.body.appendChild(ghost);
+    return { ghost, rect };
+  });
+
+  // Settle immediately (same pattern as the discard flip: mutate + render first, then animate a
+  // visual ghost over the top) - the real bet-stacks empty out and the pot jumps to its new total
+  // in one shot, with the ghosts providing the illusion of the chips still being in flight.
+  playerContributedThisRound = 0;
+  opponentContributedThisRound = 0;
+  render();
+
+  const potChipStackEl = document.querySelector<HTMLDivElement>("#chip-stack")!;
+  const potRect = potChipStackEl.getBoundingClientRect();
+
+  await Promise.all(
+    ghosts.map(({ ghost, rect }) => {
+      const dx = potRect.left - rect.left;
+      const dy = potRect.top - rect.top;
+      return ghost.animate([{ transform: "translate(0, 0)" }, { transform: `translate(${dx}px, ${dy}px)` }], {
+        duration: CHIP_FLY_MS,
+        easing: "ease-in",
+      }).finished;
+    }),
+  );
+
+  ghosts.forEach(({ ghost }) => ghost.remove());
+}
+
 async function advanceRoundOrShowdown() {
   if (revealedCount < BOARD_SIZE) {
     const slotIndex = revealedCount;
@@ -497,6 +559,7 @@ async function advanceRoundOrShowdown() {
 // the player if the opponent raised.
 async function continueRound() {
   if (isRoundClosed(actionsThisRound, playerContributedThisRound, opponentContributedThisRound)) {
+    await settleBetsIntoPot();
     await advanceRoundOrShowdown();
     render();
     return;
@@ -509,6 +572,7 @@ async function continueRound() {
     return;
   }
   if (isRoundClosed(actionsThisRound, playerContributedThisRound, opponentContributedThisRound)) {
+    await settleBetsIntoPot();
     await advanceRoundOrShowdown();
   } else {
     facingBet = true;
@@ -568,6 +632,11 @@ async function startHand() {
   discardPiles = Array.from({ length: BOARD_SIZE }, () => []);
   handOutcome = null;
   facingBet = false;
+  // reset before the ante's own render(), not just inside startRound() - otherwise that render
+  // would briefly show displayedPot() subtracting out stale contributions from the previous
+  // hand's final round (startRound() doesn't reset these until after this ante banner plays)
+  playerContributedThisRound = 0;
+  opponentContributedThisRound = 0;
 
   pot = ANTE * 2;
   playerBalance -= ANTE;
@@ -612,12 +681,16 @@ app.innerHTML = `
       <div id="hand" class="hand"></div>
     </div>
 
+    <div id="player-bet-stack" class="bet-stack"></div>
+
     <div class="boards">
       <div id="board-a" class="board-row"></div>
       <div id="chip-stack" class="chip-stack"></div>
       <div id="table-center" class="table-center"></div>
       <div id="board-b" class="board-row"></div>
     </div>
+
+    <div id="opponent-bet-stack" class="bet-stack"></div>
 
     <div class="hand-wrap">
       <span id="opponent-dealer-badge" class="dealer-badge hidden">D</span>

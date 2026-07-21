@@ -381,16 +381,22 @@ test("an opponent's bet presents Call/Raise/Fold, and calling closes the round",
   await expect(callButton(page)).toHaveText("Call ($1)");
   await expect(raiseButton(page)).toHaveText("Raise ($2)");
   await expect(foldButton(page)).toBeVisible();
-  await expect(potAmount(page)).toHaveText("$3");
+  // the pot only shows settled rounds (just the ante so far) - the live bet sits in front of
+  // the opponent's hand until this round closes
+  await expect(potAmount(page)).toHaveText("$2");
+  await expect(page.locator("#opponent-bet-stack .chip")).toHaveCount(1);
+  await expect(page.locator("#player-bet-stack .chip")).toHaveCount(0);
 
   await callButton(page).click();
 
-  // the round closes and the board reveals; the next round opens the same way
+  // the round closes (bet stacks slide into the pot) and the board reveals; the next round
+  // opens the same way, with the settled pot now including that $1+$1
   await expect(bannerText(page)).toHaveText("Opponent bets $1");
   await expect(callButton(page)).toBeEnabled();
   expect(await revealedCount(page, "#board-a")).toBe(1);
   await expect(callButton(page)).toHaveText("Call ($1)");
-  await expect(potAmount(page)).toHaveText("$5");
+  await expect(potAmount(page)).toHaveText("$4");
+  await expect(page.locator("#opponent-bet-stack .chip")).toHaveCount(1);
 });
 
 test("raising keeps the round open (no reveal) until someone calls", async ({ page }) => {
@@ -405,14 +411,22 @@ test("raising keeps the round open (no reveal) until someone calls", async ({ pa
   await expect(callButton(page)).toBeEnabled();
   expect(await revealedCount(page, "#board-a")).toBe(0);
   await expect(callButton(page)).toHaveText("Call ($1)");
-  await expect(potAmount(page)).toHaveText("$7");
+  // still just the settled ante - the raise war so far ($2 from the player, $3 from the
+  // opponent) is still sitting in front of each hand, not yet folded into the pot
+  await expect(potAmount(page)).toHaveText("$2");
+  await expect(page.locator("#player-bet-stack .chip")).toHaveCount(2);
+  await expect(page.locator("#opponent-bet-stack .chip")).toHaveCount(3);
 
   await callButton(page).click();
 
-  // now it closes, board reveals for round 0, and round 1 opens with a fresh bet
+  // now it closes (both bet stacks slide into the pot), board reveals for round 0, and round 1
+  // opens with a fresh bet
   await expect(callButton(page)).toBeEnabled();
   expect(await revealedCount(page, "#board-a")).toBe(1);
   await expect(callButton(page)).toHaveText("Call ($1)");
+  await expect(potAmount(page)).toHaveText("$8");
+  await expect(page.locator("#player-bet-stack .chip")).toHaveCount(0);
+  await expect(page.locator("#opponent-bet-stack .chip")).toHaveCount(1);
 });
 
 test("the opponent folding ends the hand immediately without revealing their cards", async ({ page }) => {
