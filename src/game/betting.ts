@@ -78,6 +78,7 @@ export function settleShowdown(pot: number, highWinner: Winner, lowWinner: Winne
   return { playerShare, opponentShare: pot - playerShare };
 }
 
-export function settleFold(pot: number, folder: Player): { playerShare: number } {
-  return { playerShare: folder === "opponent" ? pot : 0 };
+export function settleFold(pot: number, folder: Player): ShowdownSettlement {
+  const playerShare = folder === "opponent" ? pot : 0;
+  return { playerShare, opponentShare: pot - playerShare };
 }

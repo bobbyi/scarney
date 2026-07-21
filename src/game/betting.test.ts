@@ -97,11 +97,11 @@ describe("settleShowdown", () => {
 
 describe("settleFold", () => {
   it("gives the player the whole pot when the opponent folds", () => {
-    expect(settleFold(10, "opponent")).toEqual({ playerShare: 10 });
+    expect(settleFold(10, "opponent")).toEqual({ playerShare: 10, opponentShare: 0 });
   });
 
   it("gives the player nothing when the player folds", () => {
-    expect(settleFold(10, "player")).toEqual({ playerShare: 0 });
+    expect(settleFold(10, "player")).toEqual({ playerShare: 0, opponentShare: 10 });
   });
 });
 

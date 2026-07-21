@@ -383,8 +383,8 @@ function resolveOpponentTurn(): OpponentTurnResult {
   if (owed > 0) {
     const decision = strategy.decideFacingBet();
     if (decision === "fold") {
-      handOutcome = { type: "fold", folder: "opponent" };
-      playerBalance += settleFold(pot, "opponent").playerShare;
+      // Settling (handOutcome + balance) is deferred to the caller, which flies the pot to the
+      // winner before applying it - see settlePotToWinners.
       return { message: "Opponent folds", folded: true };
     }
     const contribution = contributionForResponse(decision, owed, revealedCount);
@@ -546,6 +546,56 @@ async function settleBetsIntoPot() {
   ghosts.forEach(({ ghost }) => ghost.remove());
 }
 
+// Flies the settled pot out to whichever side(s) won it - the reverse direction of
+// settleBetsIntoPot, and for the same reason (chips are interchangeable, only the total matters).
+// Here a split pot needs one *rendered* ghost per non-zero share rather than two clones of one
+// element, since the two shares are usually different amounts, not the same stack moving as a
+// unit. `applyOutcome` sets handOutcome (+ balance) - called here, right before the settling
+// render, so the real pot chip-stack can be measured while it's still populated, before it's
+// cleared in favor of the outcome plaque.
+async function settlePotToWinners(playerShare: number, opponentShare: number, applyOutcome: () => void) {
+  const potChipStackEl = document.querySelector<HTMLDivElement>("#chip-stack")!;
+  const potRect = potChipStackEl.getBoundingClientRect();
+
+  applyOutcome();
+  render();
+
+  const destinations = [
+    { el: document.querySelector<HTMLDivElement>("#player-bet-stack")!, amount: playerShare },
+    { el: document.querySelector<HTMLDivElement>("#opponent-bet-stack")!, amount: opponentShare },
+  ].filter(({ amount }) => amount > 0);
+
+  if (destinations.length === 0) return;
+
+  const ghosts = destinations.map(({ el, amount }) => {
+    const rect = el.getBoundingClientRect();
+    const ghost = document.createElement("div");
+    ghost.className = "bet-stack";
+    ghost.innerHTML = renderChipStack(amount);
+    ghost.style.position = "fixed";
+    ghost.style.left = `${potRect.left}px`;
+    ghost.style.top = `${potRect.top}px`;
+    ghost.style.margin = "0";
+    ghost.style.pointerEvents = "none";
+    ghost.style.zIndex = "15";
+    document.body.appendChild(ghost);
+    return { ghost, rect };
+  });
+
+  await Promise.all(
+    ghosts.map(({ ghost, rect }) => {
+      const dx = rect.left - potRect.left;
+      const dy = rect.top - potRect.top;
+      return ghost.animate([{ transform: "translate(0, 0)" }, { transform: `translate(${dx}px, ${dy}px)` }], {
+        duration: CHIP_FLY_MS,
+        easing: "ease-in",
+      }).finished;
+    }),
+  );
+
+  ghosts.forEach(({ ghost }) => ghost.remove());
+}
+
 async function advanceRoundOrShowdown() {
   if (revealedCount < BOARD_SIZE) {
     const slotIndex = revealedCount;
@@ -569,8 +619,11 @@ async function advanceRoundOrShowdown() {
     const revealedBottomCards = deal.boardB;
     const high = determineHighWinner([...hand, ...revealedBottomCards], [...opponentHand, ...revealedBottomCards]);
     const low = determineLowWinner(handPoints(hand), handPoints(opponentHand));
-    handOutcome = { type: "showdown", high, low };
-    playerBalance += settleShowdown(pot, high.winner, low).playerShare;
+    const { playerShare, opponentShare } = settleShowdown(pot, high.winner, low);
+    await settlePotToWinners(playerShare, opponentShare, () => {
+      handOutcome = { type: "showdown", high, low };
+      playerBalance += playerShare;
+    });
   }
 }
 
@@ -589,6 +642,11 @@ async function continueRound() {
   render();
   await showBanner(message);
   if (folded) {
+    const { playerShare, opponentShare } = settleFold(pot, "opponent");
+    await settlePotToWinners(playerShare, opponentShare, () => {
+      handOutcome = { type: "fold", folder: "opponent" };
+      playerBalance += playerShare;
+    });
     render();
     return;
   }
@@ -622,8 +680,11 @@ async function resolveFacingBet(action: FacingBetAction) {
   frozenControlsHtml = renderActionButtons(true);
   resolving = true;
   if (action === "fold") {
-    handOutcome = { type: "fold", folder: "player" };
-    playerBalance += settleFold(pot, "player").playerShare; // always 0, kept for symmetry/clarity
+    const { playerShare, opponentShare } = settleFold(pot, "player"); // playerShare always 0
+    await settlePotToWinners(playerShare, opponentShare, () => {
+      handOutcome = { type: "fold", folder: "player" };
+      playerBalance += playerShare;
+    });
     resolving = false;
     frozenControlsHtml = null;
     render();
