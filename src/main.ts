@@ -194,13 +194,16 @@ function renderChipTowers(count: number, colorClass: string): string {
   return towers.join("");
 }
 
-// $1 chips are white, $5 chips are red - (pot mod 5) whites and (pot div 5) reds.
+// $1 chips are white, $5 chips are red - (pot mod 5) whites and (pot div 5) reds. Rendered into
+// its own fixed-position element (not part of #table-center) so a growing/shrinking stack never
+// shifts the pot amount's position - only ever grows away from it.
 function renderChipStack(): string {
+  if (handOutcome) return "";
   const visualPot = Math.min(Math.floor(pot), MAX_VISUAL_POT);
   const reds = Math.floor(visualPot / 5);
   const whites = visualPot % 5;
   if (reds === 0 && whites === 0) return "";
-  return `<div class="chip-stack">${renderChipTowers(reds, "red")}${renderChipTowers(whites, "white")}</div>`;
+  return `${renderChipTowers(reds, "red")}${renderChipTowers(whites, "white")}`;
 }
 
 function renderTableCenter(): string {
@@ -230,10 +233,7 @@ function renderTableCenter(): string {
     return `<div class="pot-plaque"><div class="center-line">${line}</div></div>`;
   }
 
-  return `
-    ${renderChipStack()}
-    <div class="pot-plaque"><div class="pot-amount">${formatMoney(pot)}</div><div class="center-label">Pot</div></div>
-  `;
+  return `<div class="pot-amount-plain">${formatMoney(pot)}</div>`;
 }
 
 // Renders the live Check/Bet or Call/Raise/Fold set from current state (amounts included).
@@ -275,6 +275,7 @@ function render() {
   const boardAEl = document.querySelector<HTMLDivElement>("#board-a")!;
   const boardBEl = document.querySelector<HTMLDivElement>("#board-b")!;
   const tableCenterEl = document.querySelector<HTMLDivElement>("#table-center")!;
+  const chipStackEl = document.querySelector<HTMLDivElement>("#chip-stack")!;
   const controlsEl = document.querySelector<HTMLDivElement>("#controls")!;
   const handTypeEl = document.querySelector<HTMLDivElement>("#hand-type")!;
   const pointTotalEl = document.querySelector<HTMLDivElement>("#point-total")!;
@@ -305,6 +306,7 @@ function render() {
     .join("");
 
   tableCenterEl.innerHTML = renderTableCenter();
+  chipStackEl.innerHTML = renderChipStack();
   controlsEl.innerHTML = renderControls();
 
   const revealedBottomCards = deal.boardB.slice(0, revealedCount);
@@ -526,6 +528,7 @@ app.innerHTML = `
 
     <div class="boards">
       <div id="board-a" class="board-row"></div>
+      <div id="chip-stack" class="chip-stack"></div>
       <div id="table-center" class="table-center"></div>
       <div id="board-b" class="board-row"></div>
     </div>

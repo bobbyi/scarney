@@ -138,9 +138,15 @@ body {
   top: 50%;
   left: 50%;
   transform: translate(-50%, -50%);
-  display: flex;
-  align-items: center;
-  gap: 0.7rem;
+}
+
+.pot-amount-plain {
+  color: white;
+  font-size: 1.9rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  text-shadow: 0 2px 6px rgba(0, 0, 0, 0.55);
+  white-space: nowrap;
 }
 
 .pot-plaque {
@@ -178,6 +184,12 @@ body {
 }
 
 .chip-stack {
+  position: absolute;
+  top: 50%;
+  /* fixed gap from the table's horizontal center - the stack only ever grows leftward/outward
+     from this anchor as more chips appear, so the pot amount never has to shift for it */
+  right: calc(50% + 2.5rem);
+  transform: translateY(-50%);
   display: flex;
   align-items: flex-end;
   gap: 0.3rem;

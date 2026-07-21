@@ -12,7 +12,7 @@ const raiseButton = (page: Page) => page.locator('[data-action="raise"]');
 const foldButton = (page: Page) => page.locator('[data-action="fold"]');
 const nextHandButton = (page: Page) => page.locator('[data-action="next-hand"]');
 const bannerText = (page: Page) => page.locator("#banner-text");
-const potAmount = (page: Page) => page.locator("#table-center .pot-amount");
+const potAmount = (page: Page) => page.locator("#table-center .pot-amount-plain");
 
 async function revealedCount(page: Page, boardSelector: string): Promise<number> {
   return page.locator(`${boardSelector} .board-slot > .card:not(.placeholder):not(.discard)`).count();
