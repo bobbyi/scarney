@@ -59,7 +59,7 @@ const REVEAL_PAUSE_MS = FAST ? 5 : 400;
 const DISCARD_FLY_MS = FAST ? 5 : 380;
 const DISCARD_FLIP_MS = FAST ? 5 : 260;
 const CHIP_FLY_MS = FAST ? 5 : 380;
-const BALANCE_FLASH_MS = FAST ? 5 : 1000;
+const BALANCE_FLASH_MS = FAST ? 5 : 1800;
 
 // Debug hook: ?deck=KS,KH,2C,... in the URL fixes the deck for reproducing a specific scenario.
 function nextDeck(): Card[] {
@@ -202,9 +202,11 @@ function formatMoney(amount: number): string {
   return `$${amount % 1 === 0 ? amount : amount.toFixed(2)}`;
 }
 
-// Shows a transient "+$5"/"-$3" above the Stack number for a notable balance change (ante,
-// showdown/fold settlement) - fire-and-forget, not awaited by callers since it's pure decoration
-// layered on top of a change that's already been applied and rendered.
+// Shows a transient "+$5"/"-$3" above the Stack number for a showdown/fold settlement -
+// fire-and-forget, not awaited by callers since it's pure decoration layered on top of a change
+// that's already been applied and rendered. Deliberately not used for the ante or for the
+// player's own bets/calls/raises - showing it only at settlement, not on every balance-affecting
+// action, is what makes it read as "the hand's outcome" rather than routine noise.
 function flashBalanceDelta(delta: number) {
   if (delta === 0) return;
   // Appended to the .stat container, not #balance directly - render() reassigns #balance's
@@ -753,7 +755,6 @@ async function startHand() {
 
   pot = ANTE * 2;
   playerBalance -= ANTE;
-  flashBalanceDelta(-ANTE);
   render();
   await showBanner("Both players ante $1");
   await startRound();
