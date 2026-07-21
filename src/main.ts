@@ -833,11 +833,11 @@ app.innerHTML = `
     </div>
 
     <div class="hand-wrap">
-      <span id="player-dealer-badge" class="dealer-badge hidden">D</span>
-      <div id="hand" class="hand"></div>
+      <span id="opponent-dealer-badge" class="dealer-badge hidden">D</span>
+      <div id="opponent-hand" class="hand opponent-hand"></div>
     </div>
 
-    <div id="player-bet-stack" class="bet-stack"></div>
+    <div id="opponent-bet-stack" class="bet-stack"></div>
 
     <div class="boards">
       <div id="board-a" class="board-row"></div>
@@ -846,11 +846,11 @@ app.innerHTML = `
       <div id="board-b" class="board-row"></div>
     </div>
 
-    <div id="opponent-bet-stack" class="bet-stack"></div>
+    <div id="player-bet-stack" class="bet-stack"></div>
 
     <div class="hand-wrap">
-      <span id="opponent-dealer-badge" class="dealer-badge hidden">D</span>
-      <div id="opponent-hand" class="hand opponent-hand"></div>
+      <span id="player-dealer-badge" class="dealer-badge hidden">D</span>
+      <div id="hand" class="hand"></div>
     </div>
 
     <div id="controls" class="controls"></div>
