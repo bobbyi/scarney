@@ -88,8 +88,7 @@ body {
 
 .dealer-badge {
   position: absolute;
-  top: -0.7rem;
-  left: -0.7rem;
+  left: 50%;
   width: 1.75rem;
   height: 1.75rem;
   display: flex;
@@ -106,6 +105,19 @@ body {
 
 .dealer-badge.hidden {
   visibility: hidden;
+}
+
+/* Sits in the same gap as that side's bet-stack chips (below the player's hand, above the
+   opponent's) rather than on top of the cards - offset left of center so it doesn't overlap a
+   populated chip stack, which is centered on the same axis. */
+#player-dealer-badge {
+  top: 100%;
+  transform: translate(calc(-100% - 1.3rem), 0.2rem);
+}
+
+#opponent-dealer-badge {
+  bottom: 100%;
+  transform: translate(calc(-100% - 1.3rem), -0.2rem);
 }
 
 .boards {
