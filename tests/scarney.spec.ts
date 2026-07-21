@@ -203,7 +203,7 @@ test("Next Hand deals a new hand, hides both boards again, and keeps the balance
   expect(await placeholderCount(page, "#board-a")).toBe(5);
   expect(await placeholderCount(page, "#board-b")).toBe(5);
   // hand 2's button goes to the opponent (small blind); calling-station calls automatically,
-  // leaving the player (now the big blind) with their own check/bet option
+  // leaving the player (now the big blind) with their own check/raise option
   await expect(checkButton(page)).toBeVisible();
   await expect(betButton(page)).toBeVisible();
   await expect(page.locator("#balance")).toHaveText("$100"); // $102 - $2 big blind
@@ -406,7 +406,7 @@ test("betting through a hand settles the pot into the winner's balance at showdo
   await expect(page.locator("#balance")).toHaveText("$108");
 });
 
-test("facing the blinds shows Fold/Call/Raise; calling triggers the big blind's bet option", async ({ page }) => {
+test("facing the blinds shows Fold/Call/Raise; calling triggers the big blind's raise option", async ({ page }) => {
   await page.goto("/?opponent=aggressor"); // real timing to observe the banner sequence
 
   // hand 1: player holds the button (small blind), facing the $1 blind differential immediately -
@@ -422,8 +422,9 @@ test("facing the blinds shows Fold/Call/Raise; calling triggers the big blind's 
 
   await callButton(page).click();
 
-  // aggressor (big blind) exercises its option by betting instead of checking, reopening round 0
-  await expect(bannerText(page)).toHaveText("Opponent bets $2");
+  // aggressor (big blind) exercises its option by raising instead of checking, reopening round 0 -
+  // real poker calls this a raise (the blind already established a live bet), not a fresh bet
+  await expect(bannerText(page)).toHaveText("Opponent raises");
   await expect(callButton(page)).toBeEnabled();
   await expect(callButton(page)).toHaveText("Call ($2)");
   await expect(potAmount(page)).toHaveText("$0"); // round 0 is still open, nothing settled yet

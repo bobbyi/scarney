@@ -311,9 +311,13 @@ function renderActionButtons(disabled: boolean): string {
     `;
   }
   const stake = STAKES[revealedCount];
+  // Round 0's opening decision is only ever reachable after the small blind has already called
+  // to match the big blind - real poker still calls this a raise (the big blind's "option"), not
+  // a fresh bet, since the blind itself already established a live bet for the round.
+  const openBetLabel = revealedCount === 0 ? "Raise" : "Bet";
   return `
     <button data-action="check"${disabledAttr}>Check</button>
-    <button data-action="bet"${disabledAttr}>Bet (${formatMoney(stake)})</button>
+    <button data-action="bet"${disabledAttr}>${openBetLabel} (${formatMoney(stake)})</button>
     <button class="action-spacer" disabled tabindex="-1" aria-hidden="true"></button>
   `;
 }
@@ -429,6 +433,13 @@ function resolveOpponentTurn(): OpponentTurnResult {
     const contribution = contributionForOpening("bet", revealedCount);
     opponentContributedThisRound += contribution;
     pot += contribution;
+    // Round 0's opening decision is only ever reachable after the small blind has already called
+    // to match the big blind - real poker still calls this a raise (the big blind's "option"),
+    // not a fresh bet, since the blind itself already established a live bet for the round.
+    if (revealedCount === 0) {
+      raisesThisRound++;
+      return { message: "Opponent raises", folded: false };
+    }
     return { message: `Opponent bets ${formatMoney(contribution)}`, folded: false };
   }
   return { message: "Opponent checks", folded: false };
@@ -705,6 +716,8 @@ async function resolveOpening(action: OpeningAction) {
   pot += contribution;
   playerContributedThisRound += contribution;
   actionsThisRound++;
+  // Same "big blind option" case as resolveOpponentTurn - this is a raise, not a fresh bet.
+  if (action === "bet" && revealedCount === 0) raisesThisRound++;
   render();
   await continueRound();
   resolving = false;
