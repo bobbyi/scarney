@@ -4,7 +4,7 @@ import { handPoints } from "./scoring";
 import { determineHighWinner, determineLowWinner } from "./showdown";
 import {
   amountOwed,
-  ANTE,
+  BIG_BLIND,
   callingStationStrategy,
   contributionForOpening,
   contributionForResponse,
@@ -13,6 +13,7 @@ import {
   opponentActsFirst,
   settleFold,
   settleShowdown,
+  SMALL_BLIND,
   STAKES,
   type OpponentStrategy,
 } from "./betting";
@@ -43,8 +44,8 @@ describe("contributionForOpening", () => {
   });
 
   it("costs the round's stake to bet", () => {
-    expect(contributionForOpening("bet", 0)).toBe(1);
-    expect(contributionForOpening("bet", 3)).toBe(2);
+    expect(contributionForOpening("bet", 0)).toBe(2);
+    expect(contributionForOpening("bet", 3)).toBe(4);
   });
 });
 
@@ -55,8 +56,8 @@ describe("contributionForResponse", () => {
   });
 
   it("costs the owed amount plus the round's stake to raise", () => {
-    expect(contributionForResponse("raise", 1, 0)).toBe(2);
-    expect(contributionForResponse("raise", 1, 3)).toBe(3);
+    expect(contributionForResponse("raise", 1, 0)).toBe(3);
+    expect(contributionForResponse("raise", 1, 3)).toBe(5);
   });
 });
 
@@ -130,8 +131,11 @@ describe("createRandomOpponentStrategy", () => {
   });
 });
 
-// Drives a full hand (deal, ante, a scripted sequence of actions from both sides, showdown)
+// Drives a full hand (deal, blinds, a scripted sequence of actions from both sides, showdown)
 // through the pure engine only, with no DOM involved - the decoupling the tests here rely on.
+// Always uses buttonHolder = "player", so the player posts the small blind and - per heads-up
+// convention - acts first in round 0 only (facing the blind differential, not a fresh opening
+// decision); every later round reverts to the non-button (opponent) acting first as normal.
 function playHand(
   deck: ReturnType<typeof parseDeck>,
   strategy: OpponentStrategy,
@@ -139,12 +143,12 @@ function playHand(
 ) {
   const deal = dealScarney(deck!);
   let playerBalance = 100;
-  let pot = ANTE * 2;
-  playerBalance -= ANTE;
+  let pot = SMALL_BLIND + BIG_BLIND;
+  playerBalance -= SMALL_BLIND;
 
   for (let round = 0; round < STAKES.length; round++) {
-    let playerContributed = 0;
-    let opponentContributed = 0;
+    let playerContributed = round === 0 ? SMALL_BLIND : 0;
+    let opponentContributed = round === 0 ? BIG_BLIND : 0;
     let actionsThisRound = 0;
     let folded: "player" | "opponent" | null = null;
 
@@ -170,7 +174,10 @@ function playHand(
       }
     };
 
-    if (opponentActsFirst("player")) takeOpponentTurn(); // this test always uses buttonHolder = "player"
+    // Round 0: the small blind (player, since buttonHolder = "player") acts first, facing the
+    // blind differential. Every later round: the non-button (opponent, per opponentActsFirst)
+    // acts first as a fresh opening decision, same as before blinds existed.
+    if (round === 0 ? false : opponentActsFirst("player")) takeOpponentTurn();
 
     while (!folded && !isRoundClosed(actionsThisRound, playerContributed, opponentContributed)) {
       const action = playerActions.shift();
@@ -212,8 +219,11 @@ describe("a full hand played through the engine", () => {
 
   it("settles the pot into the player's balance when they win both high and low", () => {
     const strategy: OpponentStrategy = { decideOpening: () => "check", decideFacingBet: () => "call" };
+    // round 0: player (small blind) calls the $1 difference, opponent takes the big-blind option
+    // and checks; rounds 1-2 ($2 stakes): player bets, opponent calls; rounds 3-5 ($4 stakes,
+    // unreached financially since both check): both check.
     const result = playHand(winningDeck, strategy, [
-      "bet",
+      "call",
       "bet",
       "bet",
       "check",
@@ -221,18 +231,20 @@ describe("a full hand played through the engine", () => {
       "check",
     ]);
 
-    expect(result.pot).toBe(8); // $2 ante + 3 rounds of $1 bet+call = 8
-    expect(result.playerBalance).toBe(104);
+    // blinds (1+2) + round 0's call (1) + 2 rounds of $2 bet+call (8) = 12
+    expect(result.pot).toBe(12);
+    expect(result.playerBalance).toBe(106);
   });
 
   it("ends the hand immediately and awards the pot when the opponent folds", () => {
     const strategy: OpponentStrategy = { decideOpening: () => "check", decideFacingBet: () => "fold" };
-    const result = playHand(winningDeck, strategy, ["bet"]);
+    // player (small blind) raises the big blind in round 0; the opponent, now facing a bet, folds
+    const result = playHand(winningDeck, strategy, ["raise"]);
 
-    // $2 ante + the player's $1 bet (the opponent folds instead of matching it)
     expect(result.foldedBy).toBe("opponent");
-    expect(result.pot).toBe(3);
-    // 100 - $1 ante - $1 bet + the whole $3 pot back = 101
-    expect(result.playerBalance).toBe(101);
+    // blinds (1+2) + the player's raise (owed $1 + the $2 stake = $3) = 6
+    expect(result.pot).toBe(6);
+    // 100 - $1 small blind - $3 raise + the whole $6 pot back = 102
+    expect(result.playerBalance).toBe(102);
   });
 });

@@ -15,7 +15,7 @@ import { classifyHand, handPoints } from "./game/scoring";
 import { determineHighWinner, determineLowWinner, type HighResult, type Winner } from "./game/showdown";
 import {
   amountOwed,
-  ANTE,
+  BIG_BLIND,
   callingStationStrategy,
   contributionForOpening,
   contributionForResponse,
@@ -24,6 +24,7 @@ import {
   randomOpponentStrategy,
   settleFold,
   settleShowdown,
+  SMALL_BLIND,
   STAKES,
   type FacingBetAction,
   type OpeningAction,
@@ -741,8 +742,10 @@ async function resolveFacingBet(action: FacingBetAction) {
   render();
 }
 
-// Deals a fresh hand under the current dealer button assignment: applies the ante, announces
-// it, then starts round 0 (which announces the opponent's opening move if they act first).
+// Deals a fresh hand under the current dealer button assignment and posts blinds: the button
+// holds the small blind and, per heads-up convention, acts first in round 0 - facing the blind
+// differential rather than a fresh opening decision, unlike every later round (handled entirely
+// here, not handed off to startRound(), which is for rounds 1-5 only).
 async function startHand() {
   opponentFirst = opponentActsFirst(buttonHolder);
   deal = dealScarney(nextDeck());
@@ -751,18 +754,38 @@ async function startHand() {
   opponentHand = deal.opponentHand;
   discardPiles = Array.from({ length: BOARD_SIZE }, () => []);
   handOutcome = null;
-  facingBet = false;
-  // reset before the ante's own render(), not just inside startRound() - otherwise that render
-  // would briefly show displayedPot() subtracting out stale contributions from the previous
-  // hand's final round (startRound() doesn't reset these until after this ante banner plays)
-  playerContributedThisRound = 0;
-  opponentContributedThisRound = 0;
+  actionsThisRound = 0;
+  raisesThisRound = 0;
 
-  pot = ANTE * 2;
-  playerBalance -= ANTE;
+  const playerIsSmallBlind = buttonHolder === "player";
+  playerContributedThisRound = playerIsSmallBlind ? SMALL_BLIND : BIG_BLIND;
+  opponentContributedThisRound = playerIsSmallBlind ? BIG_BLIND : SMALL_BLIND;
+  pot = SMALL_BLIND + BIG_BLIND;
+  playerBalance -= playerIsSmallBlind ? SMALL_BLIND : BIG_BLIND;
+  facingBet = playerIsSmallBlind;
+
   render();
-  await showBanner("Both players ante $1");
-  await startRound();
+  await showBanner("Both players post blinds");
+
+  if (!playerIsSmallBlind) {
+    // The opponent holds the small blind and, facing the blind differential, acts first.
+    await delay(REVEAL_PAUSE_MS);
+    const { message, folded } = resolveOpponentTurn();
+    render();
+    await showBanner(message);
+    if (folded) {
+      const { playerShare, opponentShare } = settleFold(pot, "opponent");
+      await settlePotToWinners(playerShare, opponentShare, () => {
+        handOutcome = { type: "fold", folder: "opponent" };
+        playerBalance += playerShare;
+        flashBalanceDelta(playerShare);
+      });
+      render();
+      return;
+    }
+    facingBet = opponentContributedThisRound > playerContributedThisRound;
+    render();
+  }
 }
 
 async function beginHand() {

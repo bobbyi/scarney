@@ -1,13 +1,17 @@
 import type { Winner } from "./showdown";
 
-export const STAKES: readonly number[] = [1, 1, 1, 2, 2, 2];
-export const ANTE = 1;
+export const STAKES: readonly number[] = [2, 2, 2, 4, 4, 4];
+export const SMALL_BLIND = 1;
+export const BIG_BLIND = 2;
 
 export type Player = "player" | "opponent";
 export type OpeningAction = "check" | "bet";
 export type FacingBetAction = "call" | "raise" | "fold";
 
-// The player without the dealer button acts first each round.
+// The player without the dealer button acts first each round *after* the first - the button
+// holds the small blind and, per heads-up convention, acts first in round 0 specifically (handled
+// directly in main.ts's startHand(), not here, since it's a one-time exception rather than a
+// per-round rule).
 export function opponentActsFirst(buttonHolder: Player): boolean {
   return buttonHolder === "player";
 }

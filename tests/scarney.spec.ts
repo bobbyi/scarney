@@ -47,43 +47,53 @@ test("deals a hand of 5 cards and hides both boards on load", async ({ page }) =
   expect(await revealedCount(page, "#board-a")).toBe(0);
   expect(await revealedCount(page, "#board-b")).toBe(0);
 
-  await expect(checkButton(page)).toBeEnabled();
-  await expect(betButton(page)).toHaveText("Bet ($1)");
+  // player holds the button (small blind) and faces the $1 blind differential immediately
+  await expect(callButton(page)).toBeEnabled();
+  await expect(callButton(page)).toHaveText("Call ($1)");
+  await expect(raiseButton(page)).toHaveText("Raise ($3)");
 });
 
 test("opponent is dealt 5 face-down cards on load", async ({ page }) => {
   await expect(page.locator("#opponent-hand .card.back")).toHaveCount(5);
 });
 
-test("antes $1 from each player, announces it and the opponent's forced check as banners, then settles on the pot", async ({ page }) => {
+test("posts blinds (button = small blind), announces them, and the big blind's option settles into the pot", async ({ page }) => {
   // real timing here (not ?fast=1) so the banner sequence is actually observable
   await page.goto("/?opponent=calling-station");
 
-  await expect(bannerText(page)).toHaveText("Both players ante $1");
-  await expect(bannerText(page)).toHaveText("Opponent checks");
-  await expect(checkButton(page)).toBeEnabled();
-
-  await expect(page.locator("#balance")).toHaveText("$99");
-  await expect(potAmount(page)).toHaveText("$2");
+  await expect(bannerText(page)).toHaveText("Both players post blinds");
+  await expect(callButton(page)).toBeEnabled();
+  await expect(callButton(page)).toHaveText("Call ($1)");
+  // 1 chip (small blind) in front of the player/button, 2 (big blind) in front of the opponent -
+  // the pot itself stays empty until this round closes
+  await expect(page.locator("#player-bet-stack .chip")).toHaveCount(1);
+  await expect(page.locator("#opponent-bet-stack .chip")).toHaveCount(2);
+  await expect(potAmount(page)).toHaveText("$0");
   await expect(page.locator("#player-dealer-badge")).toBeVisible();
   await expect(page.locator("#opponent-dealer-badge")).not.toBeVisible();
 
-  // $2 pot = 2 white ($1) chips, 0 red ($5) chips
-  await expect(page.locator(".chip.white")).toHaveCount(2);
+  await callButton(page).click();
+  // waits out both the big blind's option and (since calling-station checks every opening) round
+  // 1's own fresh opening check, which follow back-to-back once round 0 closes
+  await expect(checkButton(page)).toBeEnabled();
+
+  await expect(page.locator("#balance")).toHaveText("$98"); // $1 small blind + $1 call
+  await expect(potAmount(page)).toHaveText("$4"); // blinds (3) + the call (1)
+  // $4 pot = 4 white ($1) chips, 0 red ($5) chips
+  await expect(page.locator(".chip.white")).toHaveCount(4);
   await expect(page.locator(".chip.red")).toHaveCount(0);
 });
 
 test("shows a chip stack next to the pot - white ($1) and red ($5) chips for pot mod/div 5", async ({ page }) => {
   await page.goto(`/?${FAST_CALLING_STATION}`);
 
-  await betButton(page).click(); // pot 2 -> 4
-  await betButton(page).click(); // pot 4 -> 6
-  await expect(potAmount(page)).toHaveText("$6");
+  await raiseButton(page).click(); // blinds (3) + raise (3) + call (2) = pot 8
+  await expect(potAmount(page)).toHaveText("$8");
   await expect(page.locator(".chip.red")).toHaveCount(1);
-  await expect(page.locator(".chip.white")).toHaveCount(1);
+  await expect(page.locator(".chip.white")).toHaveCount(3);
 
   // the chip stack disappears once the hand ends and the results plaque takes over
-  for (let i = 0; i < 4; i++) {
+  for (let i = 0; i < 5; i++) {
     await checkButton(page).click();
   }
   await expect(nextHandButton(page)).toBeVisible();
@@ -91,32 +101,35 @@ test("shows a chip stack next to the pot - white ($1) and red ($5) chips for pot
   await expect(page.locator(".chip.white")).toHaveCount(0);
 });
 
-test("Check reveals one card on each board per click and leaves balance/pot unchanged", async ({ page }) => {
+test("Call closes round 0 (revealing one card each), then Check reveals another with no balance/pot change", async ({ page }) => {
   await page.goto("/?opponent=calling-station"); // real timing to observe the banner
-  await expect(checkButton(page)).toBeEnabled();
+  await expect(callButton(page)).toBeEnabled();
 
-  await checkButton(page).click();
-  // the opponent's forced opening check from round 0 already showed; matching it with a check of
-  // our own needs no further announcement, so this is just the *next* round's forced opening check
-  await expect(bannerText(page)).toHaveText("Opponent checks");
+  await callButton(page).click();
+  // waits out the big blind's option and round 1's own fresh opening check
   await expect(checkButton(page)).toBeEnabled();
 
   expect(await revealedCount(page, "#board-a")).toBe(1);
   expect(await revealedCount(page, "#board-b")).toBe(1);
   expect(await placeholderCount(page, "#board-a")).toBe(4);
   expect(await placeholderCount(page, "#board-b")).toBe(4);
-  await expect(page.locator("#balance")).toHaveText("$99");
-  await expect(potAmount(page)).toHaveText("$2");
+  await expect(page.locator("#balance")).toHaveText("$98"); // $1 small blind + $1 call
+  await expect(potAmount(page)).toHaveText("$4"); // blinds (3) + the call (1)
 
   await checkButton(page).click();
 
+  // this check doesn't change balance/pot - it's just round 1's own closing action
+  await expect(page.locator("#balance")).toHaveText("$98");
+  await expect(potAmount(page)).toHaveText("$4");
   expect(await revealedCount(page, "#board-a")).toBe(2);
   expect(await revealedCount(page, "#board-b")).toBe(2);
 });
 
 test("Bet increases the pot, decreases the balance, and announces both the opponent's call and their next check in order", async ({ page }) => {
   await page.goto("/?opponent=calling-station"); // real timing to observe the banner sequence
+  await callButton(page).click(); // closes round 0 (blinds + call, opponent's option checks)
   await expect(checkButton(page)).toBeEnabled();
+  await expect(page.locator("#balance")).toHaveText("$98");
 
   await betButton(page).click();
 
@@ -126,16 +139,18 @@ test("Bet increases the pot, decreases the balance, and announces both the oppon
   await expect(bannerText(page)).toHaveText("Opponent checks");
   await expect(checkButton(page)).toBeEnabled();
 
-  await expect(page.locator("#balance")).toHaveText("$98");
-  await expect(potAmount(page)).toHaveText("$4");
-  expect(await revealedCount(page, "#board-a")).toBe(1);
+  await expect(page.locator("#balance")).toHaveText("$96"); // $98 - $2 (round 1's stake)
+  await expect(potAmount(page)).toHaveText("$8"); // $4 (round 0) + $2 bet + $2 call
+  expect(await revealedCount(page, "#board-a")).toBe(2);
 });
 
 test("shows the dealer badge next to the player first, then swaps to the opponent the next hand", async ({ page }) => {
   await expect(page.locator("#player-dealer-badge")).toBeVisible();
   await expect(page.locator("#opponent-dealer-badge")).not.toBeVisible();
 
-  for (let i = 0; i < 6; i++) {
+  await callButton(page).click();
+  await expect(checkButton(page)).toBeEnabled();
+  for (let i = 0; i < 5; i++) {
     await checkButton(page).click();
   }
   await nextHandButton(page).click();
@@ -145,7 +160,9 @@ test("shows the dealer badge next to the player first, then swaps to the opponen
 });
 
 test("checking through all 6 rounds fully reveals both boards, then shows the showdown and a Next Hand button", async ({ page }) => {
-  for (let i = 0; i < 5; i++) {
+  await callButton(page).click(); // round 0
+  await expect(checkButton(page)).toBeEnabled();
+  for (let i = 0; i < 4; i++) {
     await checkButton(page).click();
   }
 
@@ -165,16 +182,19 @@ test("checking through all 6 rounds fully reveals both boards, then shows the sh
 });
 
 test("Next Hand deals a new hand, hides both boards again, and keeps the balance", async ({ page }) => {
-  // player wins both high and low on this deck (see the showdown test below), so an all-checks
-  // hand still nets +$2 from the ante pot, giving a deterministic balance to carry into hand 2
+  // player wins both high and low on this deck (see the showdown test below), so an all-passive
+  // hand (call the blind, then check the rest) nets the whole small pot, giving a deterministic
+  // balance to carry into hand 2
   const deck = "AS,AH,AD,AC,2S,6H,7C,8S,9H,10C,6S,7S,8H,9C,10H,3S,3H,4D,4C,5S";
   await page.goto(`/?deck=${deck}&${FAST_CALLING_STATION}`);
 
-  for (let i = 0; i < 6; i++) {
+  await callButton(page).click();
+  await expect(checkButton(page)).toBeEnabled();
+  for (let i = 0; i < 5; i++) {
     await checkButton(page).click();
   }
   await expect(nextHandButton(page)).toBeVisible();
-  await expect(page.locator("#balance")).toHaveText("$101");
+  await expect(page.locator("#balance")).toHaveText("$102");
 
   await nextHandButton(page).click();
 
@@ -182,12 +202,12 @@ test("Next Hand deals a new hand, hides both boards again, and keeps the balance
   await expect(page.locator("#opponent-hand .card.back")).toHaveCount(5);
   expect(await placeholderCount(page, "#board-a")).toBe(5);
   expect(await placeholderCount(page, "#board-b")).toBe(5);
+  // hand 2's button goes to the opponent (small blind); calling-station calls automatically,
+  // leaving the player (now the big blind) with their own check/bet option
   await expect(checkButton(page)).toBeVisible();
   await expect(betButton(page)).toBeVisible();
-  // hand 2: balance carries over ($101), then that hand's own ante is deducted ($100)
-  await expect(page.locator("#balance")).toHaveText("$100");
-  // hand 2's button goes to the opponent, so the player acts first with no forced opponent check
-  await expect(potAmount(page)).toHaveText("$2");
+  await expect(page.locator("#balance")).toHaveText("$100"); // $102 - $2 big blind
+  await expect(potAmount(page)).toHaveText("$0");
 });
 
 test("hand cards matching each revealed top-board rank are discarded", async ({ page }) => {
@@ -196,7 +216,12 @@ test("hand cards matching each revealed top-board rank are discarded", async ({ 
   for (let round = 0; round < 5; round++) {
     const handBefore = await handRanks(page);
 
-    await checkButton(page).click();
+    if (round === 0) {
+      await callButton(page).click();
+      await expect(checkButton(page)).toBeEnabled();
+    } else {
+      await checkButton(page).click();
+    }
 
     const revealedRank = await page
       .locator(`#board-a .board-slot:nth-child(${round + 1}) > img.card:not(.discard)`)
@@ -216,7 +241,8 @@ test("discards both hand cards when two share the revealed rank, via a fixed ?de
   await expect(page.locator("#hand .card")).toHaveCount(5);
   expect(await handRanks(page)).toEqual(["K", "K", "2", "3", "4"]);
 
-  await checkButton(page).click();
+  await callButton(page).click();
+  await expect(checkButton(page)).toBeEnabled();
 
   expect(await handRanks(page)).toEqual(["2", "3", "4"]);
   expect((await discardRanksInSlot(page, 0)).sort()).toEqual(["K", "K"]);
@@ -237,8 +263,10 @@ test("hand type and points update as the hand shrinks and the bottom board revea
   await expect(page.locator("#hand-type")).toHaveText("Pair");
   await expect(page.locator("#point-total")).toHaveText("29");
 
-  // round 1: both kings discard (High Card left: 2,3,4), bottom board reveals 9S -> still High Card
-  await checkButton(page).click();
+  // round 0 (closed via the blind call): both kings discard (High Card left: 2,3,4), bottom board
+  // reveals 9S -> still High Card
+  await callButton(page).click();
+  await expect(checkButton(page)).toBeEnabled();
   await expect(page.locator("#hand-type")).toHaveText("High Card");
   await expect(page.locator("#point-total")).toHaveText("9");
 });
@@ -249,7 +277,8 @@ test("opponent's matching-rank cards discard and slide left with no gaps, stayin
 
   await expect(page.locator("#opponent-hand .card.back")).toHaveCount(5);
 
-  await checkButton(page).click();
+  await callButton(page).click();
+  await expect(checkButton(page)).toBeEnabled();
 
   // opponent held QH, QD; boardA's first reveal is QS, so both discard, leaving 3 face-down cards
   await expect(page.locator("#opponent-hand .card.back")).toHaveCount(3);
@@ -266,7 +295,9 @@ test("Showdown reveals the opponent's hand and declares high/low winners", async
   const deck = "AS,AH,AD,AC,2S,6H,7C,8S,9H,10C,6S,7S,8H,9C,10H,3S,3H,4D,4C,5S";
   await page.goto(`/?deck=${deck}&${FAST_CALLING_STATION}`);
 
-  for (let i = 0; i < 5; i++) {
+  await callButton(page).click();
+  await expect(checkButton(page)).toBeEnabled();
+  for (let i = 0; i < 4; i++) {
     await checkButton(page).click();
   }
   await expect(page.locator("#opponent-hand .card.back")).toHaveCount(5);
@@ -288,7 +319,9 @@ test("highlights exactly the 5 cards making up the winning high hand and dims ev
   const deck = "AS,AH,AD,AC,2S,6H,7C,8S,9H,10C,6S,7S,8H,9C,10H,3S,3H,4D,4C,5S";
   await page.goto(`/?deck=${deck}&${FAST_CALLING_STATION}`);
 
-  for (let i = 0; i < 6; i++) {
+  await callButton(page).click();
+  await expect(checkButton(page)).toBeEnabled();
+  for (let i = 0; i < 5; i++) {
     await checkButton(page).click();
   }
   await expect(page.locator("#table-center")).toContainText("You win the high with Four of a Kind");
@@ -328,7 +361,9 @@ test("regression: a 6-card flush pool highlights only the best 5, not the 6th lo
   const deck = "2C,5H,9S,JC,4H,KS,QH,8C,10H,6C,4D,5D,JD,6S,7S,2D,3D,9D,2S,3S";
   await page.goto(`/?deck=${deck}&${FAST_CALLING_STATION}`);
 
-  for (let i = 0; i < 6; i++) {
+  await callButton(page).click();
+  await expect(checkButton(page)).toBeEnabled();
+  for (let i = 0; i < 5; i++) {
     await checkButton(page).click();
   }
   await expect(page.locator("#table-center")).toContainText("Opponent wins the high with Flush");
@@ -351,52 +386,59 @@ test("betting through a hand settles the pot into the winner's balance at showdo
   const deck = "AS,AH,AD,AC,2S,6H,7C,8S,9H,10C,6S,7S,8H,9C,10H,3S,3H,4D,4C,5S";
   await page.goto(`/?deck=${deck}&${FAST_CALLING_STATION}`);
 
-  // player bets the first three ($1) rounds, then checks the last three ($2) rounds
-  await betButton(page).click();
-  await expect(page.locator("#balance")).toHaveText("$98");
-  await betButton(page).click();
-  await expect(page.locator("#balance")).toHaveText("$97");
-  await betButton(page).click();
+  // player raises the blind (round 0), then bets the next two ($2) rounds, then checks the last
+  // three ($4) rounds
+  await raiseButton(page).click();
   await expect(page.locator("#balance")).toHaveText("$96");
-  await expect(potAmount(page)).toHaveText("$8");
+  await expect(checkButton(page)).toBeEnabled();
+  await betButton(page).click();
+  await expect(page.locator("#balance")).toHaveText("$94");
+  await betButton(page).click();
+  await expect(page.locator("#balance")).toHaveText("$92");
+  await expect(potAmount(page)).toHaveText("$16");
 
   await checkButton(page).click();
   await checkButton(page).click();
   await checkButton(page).click();
 
-  // player wins both high and low (see the showdown test above), so the full $8 pot (including
-  // both antes) comes back
+  // player wins both high and low (see the showdown test above), so the full $16 pot comes back
   await expect(nextHandButton(page)).toBeVisible();
-  await expect(page.locator("#balance")).toHaveText("$104");
+  await expect(page.locator("#balance")).toHaveText("$108");
 });
 
-test("an opponent's bet presents Call/Raise/Fold, and calling closes the round", async ({ page }) => {
+test("facing the blinds shows Fold/Call/Raise; calling triggers the big blind's bet option", async ({ page }) => {
   await page.goto("/?opponent=aggressor"); // real timing to observe the banner sequence
 
-  // hand 1: player holds the button, so the opponent (aggressor) acts first and opens with a bet
-  await expect(bannerText(page)).toHaveText("Both players ante $1");
-  await expect(bannerText(page)).toHaveText("Opponent bets $1");
+  // hand 1: player holds the button (small blind), facing the $1 blind differential immediately -
+  // no banner is needed for this, blinds are posted silently the moment the hand deals
+  await expect(bannerText(page)).toHaveText("Both players post blinds");
   await expect(callButton(page)).toBeEnabled();
-
   await expect(callButton(page)).toHaveText("Call ($1)");
-  await expect(raiseButton(page)).toHaveText("Raise ($2)");
+  await expect(raiseButton(page)).toHaveText("Raise ($3)");
   await expect(foldButton(page)).toBeVisible();
-  // the pot only shows settled rounds (just the ante so far) - the live bet sits in front of
-  // the opponent's hand until this round closes
-  await expect(potAmount(page)).toHaveText("$2");
-  await expect(page.locator("#opponent-bet-stack .chip")).toHaveCount(1);
-  await expect(page.locator("#player-bet-stack .chip")).toHaveCount(0);
+  await expect(potAmount(page)).toHaveText("$0");
+  await expect(page.locator("#player-bet-stack .chip")).toHaveCount(1);
+  await expect(page.locator("#opponent-bet-stack .chip")).toHaveCount(2);
 
   await callButton(page).click();
 
-  // the round closes (bet stacks slide into the pot) and the board reveals; the next round
-  // opens the same way, with the settled pot now including that $1+$1
-  await expect(bannerText(page)).toHaveText("Opponent bets $1");
+  // aggressor (big blind) exercises its option by betting instead of checking, reopening round 0
+  await expect(bannerText(page)).toHaveText("Opponent bets $2");
+  await expect(callButton(page)).toBeEnabled();
+  await expect(callButton(page)).toHaveText("Call ($2)");
+  await expect(potAmount(page)).toHaveText("$0"); // round 0 is still open, nothing settled yet
+
+  await callButton(page).click();
+
+  // the round closes (bet stacks slide into the pot) and the board reveals; round 1 opens the
+  // same way, with the settled pot now including round 0's total
+  await expect(bannerText(page)).toHaveText("Opponent bets $2");
   await expect(callButton(page)).toBeEnabled();
   expect(await revealedCount(page, "#board-a")).toBe(1);
-  await expect(callButton(page)).toHaveText("Call ($1)");
-  await expect(potAmount(page)).toHaveText("$4");
-  await expect(page.locator("#opponent-bet-stack .chip")).toHaveCount(1);
+  await expect(callButton(page)).toHaveText("Call ($2)");
+  // blinds (3) + the player's first call (1) + the opponent's bet-option (2) + the player's
+  // second call matching it (2) = 8
+  await expect(potAmount(page)).toHaveText("$8");
 });
 
 test("raising keeps the round open (no reveal) until someone calls", async ({ page }) => {
@@ -406,16 +448,15 @@ test("raising keeps the round open (no reveal) until someone calls", async ({ pa
 
   await raiseButton(page).click();
 
-  // aggressor raises right back; still round 0, no reveal yet, player faces a bet again
+  // aggressor raises right back; still round 0, no reveal yet
   await expect(bannerText(page)).toHaveText("Opponent raises");
   await expect(callButton(page)).toBeEnabled();
   expect(await revealedCount(page, "#board-a")).toBe(0);
-  await expect(callButton(page)).toHaveText("Call ($1)");
-  // still just the settled ante - the raise war so far ($2 from the player, $3 from the
-  // opponent) is still sitting in front of each hand, not yet folded into the pot
-  await expect(potAmount(page)).toHaveText("$2");
-  await expect(page.locator("#player-bet-stack .chip")).toHaveCount(2);
-  await expect(page.locator("#opponent-bet-stack .chip")).toHaveCount(3);
+  await expect(callButton(page)).toHaveText("Call ($2)");
+  // still just the blinds and this raise war sitting in front of each hand, not yet in the pot
+  await expect(potAmount(page)).toHaveText("$0");
+  await expect(page.locator("#player-bet-stack .chip")).toHaveCount(4);
+  await expect(page.locator("#opponent-bet-stack .chip")).toHaveCount(2);
 
   await callButton(page).click();
 
@@ -423,23 +464,23 @@ test("raising keeps the round open (no reveal) until someone calls", async ({ pa
   // opens with a fresh bet
   await expect(callButton(page)).toBeEnabled();
   expect(await revealedCount(page, "#board-a")).toBe(1);
-  await expect(callButton(page)).toHaveText("Call ($1)");
-  await expect(potAmount(page)).toHaveText("$8");
+  await expect(callButton(page)).toHaveText("Call ($2)");
+  await expect(potAmount(page)).toHaveText("$12");
   await expect(page.locator("#player-bet-stack .chip")).toHaveCount(0);
-  await expect(page.locator("#opponent-bet-stack .chip")).toHaveCount(1);
+  await expect(page.locator("#opponent-bet-stack .chip")).toHaveCount(2); // opponent's fresh $2 bet for round 1
 });
 
 test("the opponent folding ends the hand immediately without revealing their cards", async ({ page }) => {
   await page.goto("/?opponent=folder&fast=1");
 
-  // folder always checks when opening, so the player faces Check/Bet first
-  await expect(checkButton(page)).toBeVisible();
-  await betButton(page).click();
+  // player (small blind) raises the blind; folder always folds when facing a bet
+  await expect(raiseButton(page)).toBeVisible();
+  await raiseButton(page).click();
 
   await expect(page.locator("#opponent-hand .card.back")).toHaveCount(5);
   await expect(nextHandButton(page)).toBeVisible();
-  await expect(page.locator("#table-center")).toContainText("Opponent folds — You win $3");
-  await expect(page.locator("#balance")).toHaveText("$101"); // $99 after ante + the whole $3 pot
+  await expect(page.locator("#table-center")).toContainText("Opponent folds — You win $6");
+  await expect(page.locator("#balance")).toHaveText("$102"); // $96 after blinds+raise + the whole $6 pot
 });
 
 test("the player can fold when facing a bet, ending the hand without revealing the opponent's cards", async ({ page }) => {
@@ -451,5 +492,5 @@ test("the player can fold when facing a bet, ending the hand without revealing t
   await expect(page.locator("#opponent-hand .card.back")).toHaveCount(5);
   await expect(nextHandButton(page)).toBeVisible();
   await expect(page.locator("#table-center")).toContainText("You fold — Opponent wins $3");
-  await expect(page.locator("#balance")).toHaveText("$99"); // just the ante; nothing else was contributed
+  await expect(page.locator("#balance")).toHaveText("$99"); // just the small blind; nothing else was contributed
 });
