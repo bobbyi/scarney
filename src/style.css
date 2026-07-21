@@ -293,9 +293,38 @@ body {
     0 1px 2px rgba(0, 0, 0, 0.4);
 }
 
+/* A fixed 3-column grid (not flex) so each action always sits in the same physical slot
+   regardless of which action set is showing or how long its label text is - Check/Bet render
+   into the same 2nd/3rd columns Call/Raise use, via a hidden spacer in the 1st column where Fold
+   would go, rather than the row re-centering itself around however wide its current content is. */
 .controls {
-  display: flex;
-  gap: 1rem;
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 0.6rem;
+  width: 100%;
+}
+
+.controls button {
+  width: 100%;
+  /* The global button padding is generous for an auto-width button, but too wide once 3 equal
+     columns have to share the row - narrower padding plus no-wrap keeps "Raise ($2)" on one line
+     instead of wrapping and growing the row taller than the Check/Bet state. */
+  padding-left: 0.4rem;
+  padding-right: 0.4rem;
+  white-space: nowrap;
+  font-size: 0.95rem;
+}
+
+.controls .action-spacer {
+  visibility: hidden;
+}
+
+/* The single post-showdown "Next Hand" button isn't part of that 3-slot scheme - let it span the
+   full row and stay centered as its own thing, rather than being stretched into column 1. */
+.controls button[data-action="next-hand"] {
+  grid-column: 1 / -1;
+  width: auto;
+  justify-self: center;
 }
 
 button {

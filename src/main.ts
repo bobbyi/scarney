@@ -311,6 +311,7 @@ function renderActionButtons(disabled: boolean): string {
   }
   const stake = STAKES[revealedCount];
   return `
+    <button class="action-spacer" disabled tabindex="-1" aria-hidden="true"></button>
     <button data-action="check"${disabledAttr}>Check</button>
     <button data-action="bet"${disabledAttr}>Bet (${formatMoney(stake)})</button>
   `;
