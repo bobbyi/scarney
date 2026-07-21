@@ -67,7 +67,23 @@ const MEDIOCRE: DecisionContext = {
   raisesThisRound: 0,
 };
 
-const TRIALS = 5; // every scenario above is deterministic regardless of trial count or RNG
+// Same locked-tie-high board as STRONG, but the opponent holds the worst possible low cards (two
+// face cards) instead of the cheap aces - not exactly deterministic (see equity.test.ts's version
+// of this sample), but reliably well under the bluff threshold. Equity ~= 0.26.
+const WEAK: DecisionContext = {
+  opponentHand: cards(["KH", "QH"]),
+  knownCards: cards(["KH", "QH"]),
+  playerHandCount: 2,
+  revealedBoardB: cards(["10S", "JD", "QC", "KS", "AH"]),
+  remainingReveals: 0,
+  round: 0,
+  pot: 0,
+  owed: 0,
+  raisesThisRound: 0,
+};
+
+const TRIALS = 200; // WEAK isn't fully deterministic like the others, so needs enough trials to
+// reliably land on the same side of the bluff threshold every run
 
 describe("createSmartOpponentStrategy", () => {
   describe("decideOpening", () => {
@@ -84,6 +100,16 @@ describe("createSmartOpponentStrategy", () => {
     it("slow-plays (checks) a strong hand when the slowplay roll hits", () => {
       const strategy = createSmartOpponentStrategy(() => STRONG, { trials: TRIALS, random: () => 0 });
       expect(strategy.decideOpening()).toBe("check");
+    });
+
+    it("checks a weak hand when the bluff roll doesn't hit", () => {
+      const strategy = createSmartOpponentStrategy(() => WEAK, { trials: TRIALS, random: () => 0.99 });
+      expect(strategy.decideOpening()).toBe("check");
+    });
+
+    it("bluffs a bet on a weak hand when the bluff roll hits", () => {
+      const strategy = createSmartOpponentStrategy(() => WEAK, { trials: TRIALS, random: () => 0 });
+      expect(strategy.decideOpening()).toBe("bet");
     });
   });
 
@@ -109,6 +135,20 @@ describe("createSmartOpponentStrategy", () => {
     });
   });
 
+  describe("decideFacingBet - bluffing", () => {
+    it("folds a weak hand facing a bet when the bluff roll doesn't hit", () => {
+      const ctx: DecisionContext = { ...WEAK, pot: 10, owed: 5 };
+      const strategy = createSmartOpponentStrategy(() => ctx, { trials: TRIALS, random: () => 0.99 });
+      expect(strategy.decideFacingBet()).toBe("fold");
+    });
+
+    it("bluff-raises a weak hand facing a bet when the bluff roll hits", () => {
+      const ctx: DecisionContext = { ...WEAK, pot: 10, owed: 5 };
+      const strategy = createSmartOpponentStrategy(() => ctx, { trials: TRIALS, random: () => 0 });
+      expect(strategy.decideFacingBet()).toBe("raise");
+    });
+  });
+
   describe("decideFacingBet - escalating raise threshold", () => {
     it("raises a strong (but not overwhelming) hand with no raises committed yet this round", () => {
       const ctx: DecisionContext = { ...STRONG, raisesThisRound: 0, pot: 10, owed: 1 };
@@ -117,9 +157,9 @@ describe("createSmartOpponentStrategy", () => {
     });
 
     it("stops raising the same hand once enough raises have already happened this round", () => {
-      // Same 0.75 equity; the base raise threshold (0.68) would still clear it, but after 2
-      // raises this round the bar has climbed to 0.68 + 2*0.06 = 0.80, above it.
-      const ctx: DecisionContext = { ...STRONG, raisesThisRound: 2, pot: 10, owed: 1 };
+      // Same 0.75 equity; the base raise threshold (0.6) would still clear it, but after 3
+      // raises this round the bar has climbed to 0.6 + 3*0.06 = 0.78, above it.
+      const ctx: DecisionContext = { ...STRONG, raisesThisRound: 3, pot: 10, owed: 1 };
       const strategy = createSmartOpponentStrategy(() => ctx, { trials: TRIALS, random: () => 0.99 });
       // Falls through to a call instead - the generous pot odds (pot 10 vs owed 1) easily clear
       // the call bar even though the raise bar has climbed out of reach.
