@@ -295,8 +295,8 @@ body {
 
 /* A fixed 3-column grid (not flex) so each action always sits in the same physical slot
    regardless of which action set is showing or how long its label text is - Check/Bet render
-   into the same 2nd/3rd columns Call/Raise use, via a hidden spacer in the 1st column where Fold
-   would go, rather than the row re-centering itself around however wide its current content is. */
+   into the same 1st/2nd columns Call/Raise use, via a hidden spacer in the 3rd column, rather
+   than the row re-centering itself around however wide its current content is. */
 .controls {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
