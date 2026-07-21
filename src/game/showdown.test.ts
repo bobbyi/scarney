@@ -66,6 +66,22 @@ describe("determineHighWinner", () => {
 
     expect(result.winner).toBe("tie");
   });
+
+  // Regression: pokersolver's Flush.solve() includes every card of the flush suit in the pool
+  // rather than trimming to the best 5 (it only pads up when short, never trims when long), so
+  // a 6-card-flush pool used to highlight all 6 cards - including the lowest, non-contributing one.
+  it("returns exactly the best 5 cards of a flush, not every card of that suit in the pool", () => {
+    const opponentPool = cards(["2D", "3D", "4D", "5D", "9D", "JD", "2S", "3C", "4H", "5S"]);
+    const playerPool = cards(["2C", "5H", "9S", "JC", "4H"]); // no flush, loses outright
+
+    const result = determineHighWinner(playerPool, opponentPool);
+
+    expect(result.winner).toBe("opponent");
+    expect(result.opponentHandName).toBe("Flush");
+    expect(result.opponentCards).toHaveLength(5);
+    // the 5 highest diamonds - the 2D is the 6th and must be excluded
+    expect(result.opponentCards.sort(byCode)).toEqual(cards(["3D", "4D", "5D", "9D", "JD"]).sort(byCode));
+  });
 });
 
 describe("determineLowWinner", () => {

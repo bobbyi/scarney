@@ -19,11 +19,21 @@ function cardKey(card: Card): string {
   return `${card.rank}-${card.suit}`;
 }
 
+const BEST_HAND_SIZE = 5;
+
 // pokersolver's own Card objects don't reference the originals, so match its winning hand back
 // to the actual pool cards by rank+suit (unambiguous - a pool never has duplicate cards).
+//
+// pokersolver has a bug where a Flush's `cards` includes *every* card of the flush suit in the
+// pool, not just the best 5 (e.g. 6 diamonds in the pool yields 6 cards, not 5) - it only pads
+// up to 5 when short, never trims down when long. Its own cards are already sorted best-first
+// in every hand type we've checked (confirmed directly against the library for Flush, and by
+// reading the source for Straight/Straight Flush, which do trim correctly), so capping at the
+// first 5 here is a safe, general fix rather than a Flush-specific patch.
 function matchPokerCards(pool: Card[], pokerCards: PokerCard[]): Card[] {
   const byKey = new Map(pool.map((card) => [cardKey(card), card] as const));
   return pokerCards
+    .slice(0, BEST_HAND_SIZE)
     .map((pokerCard) => {
       const rank = pokerCard.value === "T" ? "10" : (pokerCard.value as Card["rank"]);
       const suit = POKER_SUIT_NAMES[pokerCard.suit];

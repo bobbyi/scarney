@@ -318,6 +318,31 @@ test("highlights exactly the 5 cards making up the winning high hand and dims ev
   }
 });
 
+test("regression: a 6-card flush pool highlights only the best 5, not the 6th lowest card", async ({ page }) => {
+  // opponent's pool (hand + boardB) has 6 diamonds: 2D,3D,9D (hand) + 4D,5D,JD (boardB). The
+  // winning flush is the top 5 (J,9,5,4,3) - the 2D must stay dimmed, not highlighted.
+  const deck = "2C,5H,9S,JC,4H,KS,QH,8C,10H,6C,4D,5D,JD,6S,7S,2D,3D,9D,2S,3S";
+  await page.goto(`/?deck=${deck}&${FAST_CALLING_STATION}`);
+
+  for (let i = 0; i < 6; i++) {
+    await checkButton(page).click();
+  }
+  await expect(page.locator("#table-center")).toContainText("Opponent wins the high with Flush");
+
+  for (const alt of [
+    "J of diamonds",
+    "9 of diamonds",
+    "5 of diamonds",
+    "4 of diamonds",
+    "3 of diamonds",
+  ]) {
+    await expect(page.locator(`img[alt="${alt}"]`)).not.toHaveClass(/dimmed/);
+  }
+
+  // the 6th (lowest) diamond is part of the pool but not the winning 5 - it must stay dimmed
+  await expect(page.locator('img[alt="2 of diamonds"]')).toHaveClass(/dimmed/);
+});
+
 test("betting through a hand settles the pot into the winner's balance at showdown", async ({ page }) => {
   const deck = "AS,AH,AD,AC,2S,6H,7C,8S,9H,10C,6S,7S,8H,9C,10H,3S,3H,4D,4C,5S";
   await page.goto(`/?deck=${deck}&${FAST_CALLING_STATION}`);
