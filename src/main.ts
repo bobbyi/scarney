@@ -297,16 +297,16 @@ function renderTableCenter(): string {
   return `<div class="pot-amount-plain">${formatMoney(displayedPot())}</div>`;
 }
 
-// Renders the live Check/Bet or Call/Raise/Fold set from current state (amounts included).
+// Renders the live Check/Bet or Fold/Call/Raise set from current state (amounts included).
 function renderActionButtons(disabled: boolean): string {
   const disabledAttr = disabled ? " disabled" : "";
   if (facingBet) {
     const owed = amountOwed(playerContributedThisRound, opponentContributedThisRound);
     const raiseCost = contributionForResponse("raise", owed, revealedCount);
     return `
+      <button data-action="fold"${disabledAttr}>Fold</button>
       <button data-action="call"${disabledAttr}>Call (${formatMoney(owed)})</button>
       <button data-action="raise"${disabledAttr}>Raise (${formatMoney(raiseCost)})</button>
-      <button data-action="fold"${disabledAttr}>Fold</button>
     `;
   }
   const stake = STAKES[revealedCount];
