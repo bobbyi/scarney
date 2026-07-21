@@ -29,10 +29,40 @@ body {
 }
 
 .stat {
+  position: relative; /* anchors the balance-flash overlay - not .stat-value, since render()
+    reassigns #balance's textContent wholesale, which would silently wipe out a child appended
+    directly to it */
   display: flex;
   flex-direction: column;
   align-items: center;
   color: white;
+}
+
+/* A transient "+$5"/"-$3" that overlays the whole Stack tile, centered on it and sized to its own
+   content rather than reserved layout space - there's no headroom to spare above, below, or
+   beside the stats row on a short phone, and reserving space would also have to grow with the
+   balance's own digit count. Centering an overlay over the existing tile sidesteps both. */
+.balance-flash {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  padding: 0.15rem 0.5rem;
+  border-radius: 0.4rem;
+  background: rgba(3, 16, 9, 0.9);
+  font-size: 1.1rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  pointer-events: none;
+}
+
+.balance-flash.positive {
+  color: #7cfc9e;
+}
+
+.balance-flash.negative {
+  color: #ff9e9e;
 }
 
 .stat-label {

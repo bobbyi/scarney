@@ -59,6 +59,7 @@ const REVEAL_PAUSE_MS = FAST ? 5 : 400;
 const DISCARD_FLY_MS = FAST ? 5 : 380;
 const DISCARD_FLIP_MS = FAST ? 5 : 260;
 const CHIP_FLY_MS = FAST ? 5 : 380;
+const BALANCE_FLASH_MS = FAST ? 5 : 1000;
 
 // Debug hook: ?deck=KS,KH,2C,... in the URL fixes the deck for reproducing a specific scenario.
 function nextDeck(): Card[] {
@@ -199,6 +200,32 @@ function winnerVerb(winner: Winner): string {
 
 function formatMoney(amount: number): string {
   return `$${amount % 1 === 0 ? amount : amount.toFixed(2)}`;
+}
+
+// Shows a transient "+$5"/"-$3" above the Stack number for a notable balance change (ante,
+// showdown/fold settlement) - fire-and-forget, not awaited by callers since it's pure decoration
+// layered on top of a change that's already been applied and rendered.
+function flashBalanceDelta(delta: number) {
+  if (delta === 0) return;
+  // Appended to the .stat container, not #balance directly - render() reassigns #balance's
+  // textContent wholesale, which would silently wipe out a child appended straight to it.
+  const stackStat = document.querySelector<HTMLDivElement>("#balance")!.closest(".stat")!;
+  const flash = document.createElement("div");
+  flash.className = `balance-flash ${delta > 0 ? "positive" : "negative"}`;
+  flash.textContent = `${delta > 0 ? "+" : "-"}${formatMoney(Math.abs(delta))}`;
+  stackStat.appendChild(flash);
+
+  flash
+    .animate(
+      [
+        { opacity: 0, transform: "translate(-50%, -50%) scale(0.85)" },
+        { opacity: 1, transform: "translate(-50%, -50%) scale(1)", offset: 0.2 },
+        { opacity: 1, transform: "translate(-50%, -50%) scale(1)", offset: 0.75 },
+        { opacity: 0, transform: "translate(-50%, -50%) scale(0.9)" },
+      ],
+      { duration: BALANCE_FLASH_MS, easing: "ease-out" },
+    )
+    .finished.then(() => flash.remove());
 }
 
 // What sits in the middle of the table: the running pot while a hand is in progress, or the
@@ -623,6 +650,7 @@ async function advanceRoundOrShowdown() {
     await settlePotToWinners(playerShare, opponentShare, () => {
       handOutcome = { type: "showdown", high, low };
       playerBalance += playerShare;
+      flashBalanceDelta(playerShare);
     });
   }
 }
@@ -646,6 +674,7 @@ async function continueRound() {
     await settlePotToWinners(playerShare, opponentShare, () => {
       handOutcome = { type: "fold", folder: "opponent" };
       playerBalance += playerShare;
+      flashBalanceDelta(playerShare);
     });
     render();
     return;
@@ -683,7 +712,8 @@ async function resolveFacingBet(action: FacingBetAction) {
     const { playerShare, opponentShare } = settleFold(pot, "player"); // playerShare always 0
     await settlePotToWinners(playerShare, opponentShare, () => {
       handOutcome = { type: "fold", folder: "player" };
-      playerBalance += playerShare;
+      playerBalance += playerShare; // always 0, kept for symmetry with the other settlement sites
+      flashBalanceDelta(playerShare); // always a no-op here, same reason
     });
     resolving = false;
     frozenControlsHtml = null;
@@ -723,6 +753,7 @@ async function startHand() {
 
   pot = ANTE * 2;
   playerBalance -= ANTE;
+  flashBalanceDelta(-ANTE);
   render();
   await showBanner("Both players ante $1");
   await startRound();
