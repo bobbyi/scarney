@@ -55,6 +55,8 @@ const FAST = new URLSearchParams(window.location.search).has("fast");
 const BANNER_HOLD_MS = FAST ? 5 : 900;
 const BANNER_TRANSITION_MS = FAST ? 5 : 220;
 const REVEAL_PAUSE_MS = FAST ? 5 : 400;
+const DISCARD_FLY_MS = FAST ? 5 : 380;
+const DISCARD_FLIP_MS = FAST ? 5 : 260;
 
 // Debug hook: ?deck=KS,KH,2C,... in the URL fixes the deck for reproducing a specific scenario.
 function nextDeck(): Card[] {
@@ -109,6 +111,10 @@ function cardImageSrc(card: Card): string {
   return `${import.meta.env.BASE_URL}cards/${RANK_FILE_NAMES[card.rank]}_of_${card.suit}.svg`;
 }
 
+function cardBackSrc(): string {
+  return `${import.meta.env.BASE_URL}cards/back.svg`;
+}
+
 // Warms the browser's image cache for every card face (+ the back) up front, so that when a
 // reveal/discard sets a fresh <img src> mid-hand, the image is already decoded and paints
 // instantly alongside the render instead of trailing in a moment after the action banner.
@@ -138,11 +144,13 @@ function highlightedCardKeys(): Set<string> | null {
 function renderCard(card: Card, className = "card", style = "", dim = false): string {
   const styleAttr = style ? ` style="${style}"` : "";
   const cls = dim ? `${className} dimmed` : className;
-  return `<img class="${cls}" src="${cardImageSrc(card)}" alt="${card.rank} of ${card.suit}"${styleAttr}>`;
+  return `<img class="${cls}" data-card="${cardKey(card)}" src="${cardImageSrc(card)}" alt="${card.rank} of ${card.suit}"${styleAttr}>`;
 }
 
-function renderCardBack(): string {
-  return `<img class="card back" src="${import.meta.env.BASE_URL}cards/back.svg" alt="face-down card">`;
+// Still just shows the generic back image regardless of which card it is - the data-card
+// attribute exists purely so a discard animation can find this exact card's element later.
+function renderCardBack(card: Card): string {
+  return `<img class="card back" data-card="${cardKey(card)}" src="${cardBackSrc()}" alt="face-down card">`;
 }
 
 function renderBoardSlot(
@@ -295,7 +303,7 @@ function render() {
   opponentHandEl.innerHTML =
     handOutcome?.type === "showdown"
       ? opponentHand.map((card) => renderCard(card, "card", "", isDimmed(card))).join("")
-      : opponentHand.map(() => renderCardBack()).join("");
+      : opponentHand.map((card) => renderCardBack(card)).join("");
   // boardA never feeds the high hand (it only ever triggers discards), so once highlighting is
   // active every card there is dimmed regardless of rank.
   boardAEl.innerHTML = deal.boardA
@@ -384,17 +392,95 @@ async function startRound() {
   }
 }
 
+interface PendingDiscard {
+  key: string;
+  fromRect: DOMRect;
+  isOpponent: boolean;
+}
+
+// Captures where a card about to be discarded currently sits on screen, before the DOM changes -
+// call this before mutating hand/opponentHand and re-rendering.
+function capturePendingDiscard(card: Card, containerSelector: string, isOpponent: boolean): PendingDiscard | null {
+  const el = document.querySelector<HTMLImageElement>(`${containerSelector} img[data-card="${cardKey(card)}"]`);
+  if (!el) return null;
+  return { key: cardKey(card), fromRect: el.getBoundingClientRect(), isOpponent };
+}
+
+// Flies each discarded card from where it used to sit (in the hand) to where it now sits (in
+// the discard pile), using the FLIP technique: the render() that already happened put the card
+// in its final position, so this just fakes the starting offset and animates it away. Opponent
+// cards fly over still showing the card back (matching how they looked a moment ago), then flip
+// to reveal the real face once they land.
+async function animateDiscards(pending: PendingDiscard[]) {
+  const flights = pending
+    .map(({ key, fromRect, isOpponent }) => {
+      const el = document.querySelector<HTMLImageElement>(`#board-a img[data-card="${key}"]`);
+      if (!el) return null;
+      const toRect = el.getBoundingClientRect();
+      return { el, dx: fromRect.left - toRect.left, dy: fromRect.top - toRect.top, isOpponent };
+    })
+    .filter((f): f is { el: HTMLImageElement; dx: number; dy: number; isOpponent: boolean } => f !== null);
+
+  if (flights.length === 0) return;
+
+  const trueFaces = new Map<HTMLImageElement, { src: string; alt: string }>();
+  for (const { el, isOpponent } of flights) {
+    if (isOpponent) {
+      trueFaces.set(el, { src: el.src, alt: el.alt });
+      el.src = cardBackSrc();
+      el.alt = "face-down card";
+    }
+  }
+
+  await Promise.all(
+    flights.map(
+      ({ el, dx, dy }) =>
+        el.animate([{ transform: `translate(${dx}px, ${dy}px)` }, { transform: "translate(0, 0)" }], {
+          duration: DISCARD_FLY_MS,
+          easing: "ease-in",
+        }).finished,
+    ),
+  );
+
+  const opponentFlights = flights.filter((f) => f.isOpponent);
+  if (opponentFlights.length === 0) return;
+
+  await Promise.all(
+    opponentFlights.map(({ el }) => {
+      const animation = el.animate(
+        [{ transform: "scaleX(1)" }, { transform: "scaleX(0)" }, { transform: "scaleX(1)" }],
+        { duration: DISCARD_FLIP_MS, easing: "ease-in-out" },
+      );
+      setTimeout(() => {
+        const face = trueFaces.get(el);
+        if (face) {
+          el.src = face.src;
+          el.alt = face.alt;
+        }
+      }, DISCARD_FLIP_MS / 2);
+      return animation.finished;
+    }),
+  );
+}
+
 async function advanceRoundOrShowdown() {
   if (revealedCount < BOARD_SIZE) {
     const slotIndex = revealedCount;
     const revealedTopCard = deal.boardA[slotIndex];
     const playerPartition = partitionByRank(hand, revealedTopCard.rank);
     const opponentPartition = partitionByRank(opponentHand, revealedTopCard.rank);
+
+    const pendingDiscards = [
+      ...playerPartition.matching.map((card) => capturePendingDiscard(card, "#hand", false)),
+      ...opponentPartition.matching.map((card) => capturePendingDiscard(card, "#opponent-hand", true)),
+    ].filter((p): p is PendingDiscard => p !== null);
+
     hand = playerPartition.remaining;
     opponentHand = opponentPartition.remaining;
     discardPiles[slotIndex] = [...playerPartition.matching, ...opponentPartition.matching];
     revealedCount++;
     render(); // show the newly revealed cards before any "opening" banner for the next round
+    await animateDiscards(pendingDiscards);
     await startRound();
   } else {
     const revealedBottomCards = deal.boardB;

@@ -255,7 +255,11 @@ test("opponent's matching-rank cards discard and slide left with no gaps, stayin
   await expect(page.locator("#opponent-hand .card.back")).toHaveCount(3);
   // player's hand (2,3,4,5,6) has no queens, so it is untouched
   expect(await handRanks(page)).toEqual(["2", "3", "4", "5", "6"]);
-  expect((await discardRanksInSlot(page, 0)).sort()).toEqual(["Q", "Q"]);
+  // opponent discards fly over face-down and only reveal their rank once the flip animation
+  // finishes landing in the pile, so this needs to poll rather than read the DOM once
+  await expect
+    .poll(async () => (await discardRanksInSlot(page, 0)).sort())
+    .toEqual(["Q", "Q"]);
 });
 
 test("Showdown reveals the opponent's hand and declares high/low winners", async ({ page }) => {
